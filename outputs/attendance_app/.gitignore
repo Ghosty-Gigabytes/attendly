@@ -1,0 +1,8 @@
+.dart_tool/
+build/
+.flutter-plugins*
+android/local.properties
+android/.gradle/
+*.jks
+*.keystore
+assets/tessdata/*.traineddata

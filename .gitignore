@@ -1,0 +1,15 @@
+# Local SDKs, caches, scratch work and isolated validation builds.
+/work/
+
+# Packaged deliverables are generated from the source project.
+/outputs/*.apk
+/outputs/*.zip
+/outputs/artifact-manifest.json
+
+# Local editor metadata and generated previews.
+**/.idea/
+**/*.iml
+/outputs/attendance_app/previews/
+
+/outputs/create-history.ps1
+/outputs/commit-plan.json
