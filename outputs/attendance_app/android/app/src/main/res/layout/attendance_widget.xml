@@ -1,0 +1,16 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="@drawable/widget_background" android:padding="12dp">
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <ListView android:id="@+id/widget_grid" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:divider="@android:color/transparent" android:dividerHeight="7dp"
+            android:scrollbars="vertical" android:clipToPadding="false"/>
+        <TextView android:id="@+id/widget_empty" android:layout_width="match_parent" android:layout_height="match_parent"
+            android:gravity="center" android:text="Open the app to load attendance"
+            android:textColor="@color/widget_text" android:textSize="13sp"/>
+    </FrameLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginTop="4dp">
+        <TextView android:id="@+id/widget_updated" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="@color/widget_muted" android:textSize="9sp" android:maxLines="2" android:layout_marginEnd="6dp"/>
+        <Button android:id="@+id/widget_refresh" android:layout_width="wrap_content" android:layout_height="40dp" android:minWidth="64dp" android:minHeight="40dp" android:text="Refresh" android:textAllCaps="false" android:textSize="11sp" android:textColor="@color/widget_accent" android:background="@drawable/widget_row_background" android:contentDescription="Refresh attendance in background"/>
+    </LinearLayout>
+</LinearLayout>
