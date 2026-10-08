@@ -3,6 +3,8 @@ import '../data/controller.dart';
 import '../domain/models.dart';
 import '../domain/planner.dart';
 import 'shared.dart';
+import 'material_controls.dart';
+import 'timetable_editor.dart';
 
 class PlannerScreen extends StatefulWidget {
   final AppController controller;
@@ -61,7 +63,9 @@ class _PlannerScreenState extends State<PlannerScreen> {
       children: [
         Heading(
           'Make room for life',
-          'What if you took a break?',
+          isMaterialDesign(context)
+              ? 'Leave planner'
+              : 'What if you took a break?',
           'Try a plan. See every subject’s outcome. Your actual records stay untouched.',
         ),
         Surface(
@@ -69,7 +73,9 @@ class _PlannerScreenState extends State<PlannerScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '01  SET YOUR STARTING POINT',
+                isMaterialDesign(context)
+                    ? 'Starting point'
+                    : '01  SET YOUR STARTING POINT',
                 style: TextStyle(
                   color: tone(context, muted),
                   fontSize: 10,
@@ -98,7 +104,7 @@ class _PlannerScreenState extends State<PlannerScreen> {
                     onSelectionChanged: (v) =>
                         setState(() => baseline = v.first),
                   ),
-                  DropdownButton<int>(
+                  AppDropdown<int>(
                     value: target,
                     items: [
                       for (final p in [75, 80, 85, 90, 95])
@@ -286,7 +292,7 @@ class _PlannerScreenState extends State<PlannerScreen> {
         ],
         SizedBox(height: 28),
         Text(
-          '02  Shape your week',
+          isMaterialDesign(context) ? 'Your schedule' : '02  Shape your week',
           style: Theme.of(context).textTheme.headlineSmall,
         ),
         SizedBox(height: 8),
@@ -302,8 +308,16 @@ class _PlannerScreenState extends State<PlannerScreen> {
         if (sessions.isEmpty)
           Empty(
             'Add your timetable to start planning',
-            'Open Settings → Timetable. The planner uses actual scheduled sessions.',
+            'Add your weekly classes to plan future dates.',
           ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () => openTimetable(context, widget.controller),
+            icon: const Icon(Icons.calendar_view_week_outlined),
+            label: const Text('Edit weekly timetable'),
+          ),
+        ),
         for (final date in dates)
           Padding(
             padding: EdgeInsets.only(bottom: 12),
@@ -413,7 +427,9 @@ class _PlannerScreenState extends State<PlannerScreen> {
           ),
         SizedBox(height: 18),
         Text(
-          '03  See the impact',
+          isMaterialDesign(context)
+              ? 'Projected attendance'
+              : '03  See the impact',
           style: Theme.of(context).textTheme.headlineSmall,
         ),
         SizedBox(height: 8),
@@ -461,7 +477,7 @@ class _PlannerScreenState extends State<PlannerScreen> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    DropdownButton<String>(
+                    AppDropdown<String>(
                       itemHeight: 64,
                       isExpanded: true,
                       value: other.id,
@@ -601,7 +617,7 @@ class _PlannerScreenState extends State<PlannerScreen> {
                 'Only a real, countable university class could improve official attendance.',
                 style: TextStyle(color: tone(context, muted), fontSize: 12),
               ),
-              DropdownButton<String>(
+              AppDropdown<String>(
                 itemHeight: 64,
                 value: code,
                 isExpanded: true,

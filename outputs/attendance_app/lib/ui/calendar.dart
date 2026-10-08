@@ -3,6 +3,9 @@ import 'package:intl/intl.dart';
 import '../data/controller.dart';
 import '../domain/models.dart';
 import 'shared.dart';
+import 'material_controls.dart';
+import 'motion.dart';
+import 'timetable_editor.dart';
 
 class CalendarScreen extends StatefulWidget {
   final AppController controller;
@@ -45,12 +48,20 @@ class _CalendarScreenState extends State<CalendarScreen> {
     final offset = month.weekday - 1,
         total = DateTime(month.year, month.month + 1, 0).day;
     return ListView(
-      padding: EdgeInsets.all(24),
+      padding: EdgeInsets.all(20),
       children: [
         Heading(
-          'A day-by-day perspective',
-          selectedSubject?.name ?? 'Your attendance, in detail.',
-          'Official history and your own log, side by side when you need them.',
+          'Your attendance',
+          selectedSubject?.name ?? 'Calendar',
+          'Choose a day to see your classes and personal notes.',
+        ),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            onPressed: () => openTimetable(context, widget.controller),
+            icon: const Icon(Icons.calendar_view_week_outlined),
+            label: const Text('Weekly timetable'),
+          ),
         ),
         if (selectedSubject != null)
           Padding(
@@ -85,10 +96,20 @@ class _CalendarScreenState extends State<CalendarScreen> {
           children: [
             SizedBox(
               width: (MediaQuery.sizeOf(context).width - 48).clamp(0, 360),
-              child: DropdownButton<String?>(
+              child: AppDropdownFormField<String?>(
+                key: ValueKey(subject),
+                decoration: InputDecoration(
+                  labelText: 'Subject',
+                  prefixIcon: Icon(Icons.school_outlined),
+                  filled: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(16),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
                 isExpanded: true,
                 itemHeight: 64,
-                value: subject,
+                initialValue: subject,
                 hint: Text('All subjects'),
                 items: [
                   DropdownMenuItem(value: null, child: Text('All subjects')),
@@ -139,7 +160,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
                       DateFormat('MMMM yyyy').format(month),
                       style: TextStyle(
                         fontSize: 20,
-                        fontWeight: FontWeight.w700,
+                        fontWeight: isMaterialDesign(context)
+                            ? FontWeight.w500
+                            : FontWeight.w700,
                       ),
                     ),
                   ),
@@ -186,7 +209,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                   crossAxisCount: 7,
                   mainAxisSpacing: 5,
                   crossAxisSpacing: 5,
-                  mainAxisExtent: 64,
+                  mainAxisExtent: isMaterialDesign(context) ? 52 : 58,
                 ),
                 itemBuilder: (context, index) {
                   final day = index - offset + 1;
@@ -231,10 +254,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     key: ValueKey('calendar-day-$key'),
                     borderRadius: BorderRadius.circular(12),
                     onTap: () => setState(() => selected = date),
-                    child: Container(
+                    child: AnimatedContainer(
+                      duration: motionDuration(context, 180),
                       decoration: BoxDecoration(
                         color: active
-                            ? ink
+                            ? Theme.of(context).colorScheme.primary
                             : hasOfficial
                             ? dayColor.withValues(alpha: .10)
                             : Colors.transparent,
@@ -249,7 +273,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
                           Text(
                             '$day',
                             style: TextStyle(
-                              color: active ? Colors.white : tone(context, ink),
+                              color: active
+                                  ? Theme.of(context).colorScheme.onPrimary
+                                  : tone(context, ink),
                               fontWeight: active
                                   ? FontWeight.w700
                                   : FontWeight.w400,
@@ -260,7 +286,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
                               '${present}P ${absent}A',
                               style: TextStyle(
                                 fontSize: 9,
-                                color: active ? Colors.white : dayColor,
+                                color: active
+                                    ? Theme.of(context).colorScheme.onPrimary
+                                    : dayColor,
                               ),
                             ),
                           if (hasOffMarks && present + absent == 0)
@@ -269,7 +297,7 @@ class _CalendarScreenState extends State<CalendarScreen> {
                               style: TextStyle(
                                 fontSize: 9,
                                 color: active
-                                    ? Colors.white
+                                    ? Theme.of(context).colorScheme.onPrimary
                                     : tone(context, offDay),
                               ),
                             ),
@@ -278,7 +306,11 @@ class _CalendarScreenState extends State<CalendarScreen> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               if (hasOfficial)
-                                dot(active ? Colors.white : dayColor),
+                                dot(
+                                  active
+                                      ? Theme.of(context).colorScheme.onPrimary
+                                      : dayColor,
+                                ),
                               if (hasOffMarks && present + absent > 0)
                                 dot(
                                   active
@@ -340,7 +372,26 @@ class _CalendarScreenState extends State<CalendarScreen> {
           longDate(selected),
           style: Theme.of(context).textTheme.headlineSmall,
         ),
-        SizedBox(height: 12),
+        SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            Tag(
+              '${official.fold<int>(0, (sum, day) => sum + day.present)} present',
+            ),
+            Tag(
+              '${official.fold<int>(0, (sum, day) => sum + day.absent)} absent',
+              color: tone(context, red),
+            ),
+            if (data.showPersonal)
+              Tag(
+                '${sessions.length} personal entries',
+                color: Color(0xFF9662CD),
+              ),
+          ],
+        ),
+        SizedBox(height: 18),
         if (data.showPersonal)
           for (final difference in data.discrepancies.where(
             (d) =>
@@ -362,7 +413,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
             fontSize: 10,
             letterSpacing: 1.4,
             color: tone(context, muted),
-            fontWeight: FontWeight.w700,
+            fontWeight: isMaterialDesign(context)
+                ? FontWeight.w500
+                : FontWeight.w700,
           ),
         ),
         SizedBox(height: 10),
@@ -430,7 +483,9 @@ class _CalendarScreenState extends State<CalendarScreen> {
                     fontSize: 10,
                     letterSpacing: 1.4,
                     color: tone(context, muted),
-                    fontWeight: FontWeight.w700,
+                    fontWeight: isMaterialDesign(context)
+                        ? FontWeight.w500
+                        : FontWeight.w700,
                   ),
                 ),
               ),
@@ -595,7 +650,7 @@ Future<void> addSession(
               children: [
                 Text(longDate(day)),
                 SizedBox(height: 16),
-                DropdownButtonFormField<String>(
+                AppDropdownFormField<String>(
                   itemHeight: 64,
                   initialValue: code,
                   isExpanded: true,
