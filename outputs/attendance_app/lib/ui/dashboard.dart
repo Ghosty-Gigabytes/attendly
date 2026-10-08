@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import '../data/controller.dart';
 import '../domain/models.dart';
 import 'shared.dart';
+import 'motion.dart';
+import 'bauhaus_theme.dart';
 import 'calendar.dart';
+import 'material_cards.dart';
 
 class Dashboard extends StatelessWidget {
   final AppController controller;
@@ -12,208 +15,262 @@ class Dashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final data = controller.data;
+    final scheme = Theme.of(context).colorScheme;
+    final bauhaus = Theme.of(context).extension<BauhausPalette>() != null;
     final atRisk = data.subjects
         .where((s) => s.official.held > 0 && !s.official.eligible())
         .length;
-    return ListView(
-      padding: EdgeInsets.all(MediaQuery.sizeOf(context).width < 600 ? 20 : 36),
-      children: [
-        Heading(
-          'Your semester, in perspective',
-          'A little clarity. More freedom.',
-          data.semester.isEmpty ? 'Connected to IMS' : data.semester,
+    return RefreshIndicator(
+      onRefresh: () => safely(context, controller.sync),
+      child: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.all(
+          MediaQuery.sizeOf(context).width < 600 ? 20 : 36,
         ),
-        Container(
-          padding: EdgeInsets.all(26),
-          decoration: BoxDecoration(
-            color: Theme.of(context).brightness == Brightness.dark ? Color(0xFF181A1D) : ink,
-            borderRadius: BorderRadius.circular(26),
+        children: [
+          Heading(
+            'Your semester, in perspective',
+            isMaterialDesign(context)
+                ? 'Your attendance'
+                : 'A little clarity. More freedom.',
+            data.semester.isEmpty ? 'Connected to IMS' : data.semester,
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+          if (isMaterialDesign(context))
+            MaterialOverviewSummary(atRisk: atRisk, onPlan: onPlan)
+          else
+            Container(
+              padding: EdgeInsets.all(26),
+              decoration: BoxDecoration(
+                color: bauhaus
+                    ? scheme.primaryContainer
+                    : Theme.of(context).brightness == Brightness.dark
+                    ? Color(0xFF181A1D)
+                    : ink,
+                borderRadius: BorderRadius.circular(bauhaus ? 0 : 26),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    Icons.wb_sunny_outlined,
-                    color: Color(0xFFD5E8AE),
-                    size: 20,
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.wb_sunny_outlined,
+                        color: bauhaus
+                            ? scheme.onPrimaryContainer
+                            : Color(0xFFD5E8AE),
+                        size: 20,
+                      ),
+                      SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'YOUR OFFICIAL ATTENDANCE',
+                          style: TextStyle(
+                            color: bauhaus
+                                ? scheme.onPrimaryContainer
+                                : Color(0xFFD5E8AE),
+                            fontSize: 10,
+                            letterSpacing: 1.4,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  SizedBox(height: 18),
+                  Text(
+                    atRisk == 0
+                        ? 'Stay on track. Plan ahead.'
+                        : '$atRisk ${atRisk == 1 ? 'subject needs' : 'subjects need'} a little attention.',
+                    style: TextStyle(
+                      color: bauhaus ? scheme.onPrimaryContainer : Colors.white,
+                      fontSize: 25,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -.5,
+                    ),
+                  ),
+                  SizedBox(height: 10),
+                  Text(
+                    'Check your buffer before taking a break.',
+                    style: TextStyle(
+                      color: bauhaus
+                          ? scheme.onPrimaryContainer
+                          : Color(0xFFB9CEC6),
+                      height: 1.6,
+                    ),
+                  ),
+                  SizedBox(height: 20),
+                  FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: bauhaus
+                          ? scheme.primary
+                          : Color(0xFFD5E8AE),
+                      foregroundColor: bauhaus ? scheme.onPrimary : ink,
+                    ),
+                    onPressed: onPlan,
+                    icon: Icon(Icons.arrow_outward_rounded, size: 18),
+                    label: Text('Experiment with a leave'),
+                  ),
+                ],
+              ),
+            ),
+          SizedBox(height: 26),
+          if (controller.refreshing)
+            Padding(
+              padding: EdgeInsets.only(bottom: 16),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
                   ),
                   SizedBox(width: 10),
                   Expanded(
                     child: Text(
-                      'YOUR OFFICIAL ATTENDANCE',
+                      'Updating attendance… Your saved records are ready to view.',
                       style: TextStyle(
-                        color: Color(0xFFD5E8AE),
-                        fontSize: 10,
-                        letterSpacing: 1.4,
-                        fontWeight: FontWeight.w700,
+                        color: tone(context, muted),
+                        fontSize: 12,
                       ),
                     ),
                   ),
                 ],
               ),
-              SizedBox(height: 18),
-              Text(
-                atRisk == 0
-                    ? 'Stay on track. Plan ahead.'
-                    : '$atRisk ${atRisk == 1 ? 'subject needs' : 'subjects need'} a little attention.',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 25,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -.5,
+            ),
+          if (controller.error != null)
+            Padding(
+              padding: EdgeInsets.only(bottom: 18),
+              child: Surface(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      controller.error!,
+                      style: TextStyle(
+                        color: tone(context, amber),
+                        height: 1.5,
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: controller.refreshing
+                          ? null
+                          : () => safely(context, controller.sync),
+                      icon: Icon(Icons.sync),
+                      label: Text('Retry attendance fetch'),
+                    ),
+                  ],
                 ),
               ),
-              SizedBox(height: 10),
+            ),
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 10,
+            children: [
               Text(
-                'Check your buffer before taking a break.',
-                style: TextStyle(color: Color(0xFFB9CEC6), height: 1.6),
+                'Your subjects',
+                style: Theme.of(context).textTheme.headlineSmall,
               ),
-              SizedBox(height: 20),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: Color(0xFFD5E8AE),
-                  foregroundColor: ink,
-                ),
-                onPressed: onPlan,
-                icon: Icon(Icons.arrow_outward_rounded, size: 18),
-                label: Text('Experiment with a leave'),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Show personal records',
+                    style: TextStyle(fontSize: 12, color: tone(context, muted)),
+                  ),
+                  SizedBox(width: 8),
+                  Switch(
+                    value: data.showPersonal,
+                    onChanged: (v) =>
+                        safely(context, () => controller.showPersonal(v)),
+                  ),
+                ],
               ),
             ],
           ),
-        ),
-        SizedBox(height: 26),
-        if (controller.error != null)
-          Padding(
-            padding: EdgeInsets.only(bottom: 18),
-            child: Surface(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    controller.error!,
-                    style: TextStyle(color: tone(context, amber), height: 1.5),
+          Text(
+            data.synced == null
+                ? 'No official records fetched yet.'
+                : 'Last fetched: ${longDate(data.synced!)} · ${TimeOfDay.fromDateTime(data.synced!).format(context)}. ',
+            style: TextStyle(fontSize: 11, color: tone(context, muted)),
+          ),
+          if (data.discrepancies.isNotEmpty)
+            Padding(
+              padding: EdgeInsets.only(top: 16),
+              child: Surface(
+                child: ExpansionTile(
+                  title: Text(
+                    '${data.discrepancies.length} attendance differences to check',
                   ),
-                  TextButton.icon(
-                    onPressed: controller.busy
-                        ? null
-                        : () => safely(context, controller.sync),
-                    icon: Icon(Icons.sync),
-                    label: Text('Retry attendance fetch'),
+                  subtitle: Text(
+                    'Your logs and IMS show different attendance. Check the dates below. Your log or the IMS update may be incomplete.',
                   ),
-                ],
+                  children: [
+                    for (final d in data.discrepancies)
+                      ListTile(
+                        title: Text(
+                          '${data.subjectLabel(d.subject)} · ${displayDate(DateTime.parse(d.date))}',
+                        ),
+                        subtitle: Text(
+                          'IMS ${d.official.attended}/${d.official.held} · Personal log ${d.personal.attended}/${d.personal.held}',
+                        ),
+                      ),
+                  ],
+                ),
               ),
             ),
-          ),
-        Wrap(
-          alignment: WrapAlignment.spaceBetween,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          spacing: 12,
-          runSpacing: 10,
-          children: [
-            Text(
-              'Your subjects',
-              style: Theme.of(context).textTheme.headlineSmall,
+          SizedBox(height: 18),
+          if (data.subjects.isEmpty)
+            Empty(
+              'Your subjects will appear here',
+              'Your IMS account is connected. Refresh attendance to load your subjects.',
             ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'Show personal records',
-                  style: TextStyle(fontSize: 12, color: tone(context, muted)),
-                ),
-                SizedBox(width: 8),
-                Switch(
-                  value: data.showPersonal,
-                  onChanged: (v) =>
-                      safely(context, () => controller.showPersonal(v)),
-                ),
-              ],
-            ),
-          ],
-        ),
-        Text(
-          data.synced == null
-              ? 'No official records fetched yet.'
-              : 'Last fetched: ${longDate(data.synced!)} · ${TimeOfDay.fromDateTime(data.synced!).format(context)}. ',
-          style: TextStyle(fontSize: 11, color: tone(context, muted)),
-        ),
-        if (data.discrepancies.isNotEmpty)
-          Padding(
-            padding: EdgeInsets.only(top: 16),
-            child: Surface(
-              child: ExpansionTile(
-                title: Text(
-                  '${data.discrepancies.length} attendance differences to check',
-                ),
-                subtitle: Text(
-                  'Your logs and IMS show different attendance. Check the dates below. Your log or the IMS update may be incomplete.',
-                ),
+          LayoutBuilder(
+            builder: (context, c) {
+              final columns = c.maxWidth >= 760 ? 2 : 1;
+              return Wrap(
+                spacing: 16,
+                runSpacing: 16,
                 children: [
-                  for (final d in data.discrepancies)
-                    ListTile(
-                      title: Text(
-                        '${data.subjectLabel(d.subject)} · ${displayDate(DateTime.parse(d.date))}',
-                      ),
-                      subtitle: Text(
-                        'IMS ${d.official.attended}/${d.official.held} · Personal log ${d.personal.attended}/${d.personal.held}',
+                  for (final subject in data.subjects)
+                    SizedBox(
+                      width: (c.maxWidth - (columns - 1) * 16) / columns,
+                      child: SubjectCard(
+                        subject,
+                        data,
+                        onTap: () => showSubject(context, subject, controller),
                       ),
                     ),
                 ],
+              );
+            },
+          ),
+          SizedBox(height: 24),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.lock_outline_rounded,
+                size: 16,
+                color: tone(context, muted),
               ),
-            ),
-          ),
-        SizedBox(height: 18),
-        if (data.subjects.isEmpty)
-          Empty(
-            'Your subjects will appear here',
-            'Your IMS account is connected. Refresh attendance to load your subjects.',
-          ),
-        LayoutBuilder(
-          builder: (context, c) {
-            final columns = c.maxWidth >= 760 ? 2 : 1;
-            return Wrap(
-              spacing: 16,
-              runSpacing: 16,
-              children: [
-                for (final subject in data.subjects)
-                  SizedBox(
-                    width: (c.maxWidth - (columns - 1) * 16) / columns,
-                    child: SubjectCard(
-                      subject,
-                      data,
-                      onTap: () => showSubject(context, subject, controller),
-                    ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'With personal includes your logs for days IMS has not updated yet. Once IMS records a day for a subject, we use that record instead of your log.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: tone(context, muted),
+                    height: 1.5,
                   ),
-              ],
-            );
-          },
-        ),
-        SizedBox(height: 24),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              Icons.lock_outline_rounded,
-              size: 16,
-              color: tone(context, muted),
-            ),
-            SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'With personal includes your logs for days IMS has not updated yet. Once IMS records a day for a subject, we use that record instead of your log.',
-                style: TextStyle(
-                  fontSize: 12,
-                  color: tone(context, muted),
-                  height: 1.5,
                 ),
               ),
-            ),
-          ],
-        ),
-        SizedBox(height: 24),
-      ],
+            ],
+          ),
+          SizedBox(height: 24),
+        ],
+      ),
     );
   }
 }
@@ -225,6 +282,9 @@ class SubjectCard extends StatelessWidget {
   const SubjectCard(this.subject, this.data, {super.key, required this.onTap});
   @override
   Widget build(BuildContext context) {
+    if (isMaterialDesign(context)) {
+      return MaterialSubjectCard(subject: subject, data: data, onTap: onTap);
+    }
     final c = subject.official,
         color = Color(subject.color),
         safe = c.eligible(),
@@ -307,7 +367,7 @@ class SubjectCard extends StatelessWidget {
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(8),
-                    child: LinearProgressIndicator(
+                    child: SmoothAttendanceBar(
                       value: (c.percent ?? 0) / 100,
                       minHeight: 7,
                       color: safe ? tone(context, green) : tone(context, amber),
@@ -381,8 +441,23 @@ void showSubject(
   AppController controller,
 ) {
   Navigator.of(context).push(
-    MaterialPageRoute<void>(
-      builder: (context) => Scaffold(
+    PageRouteBuilder<void>(
+      transitionDuration: motionDuration(context, 300),
+      reverseTransitionDuration: motionDuration(context, 240),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = animation.drive(CurveTween(curve: Curves.easeOutCubic));
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(.06, 0),
+              end: Offset.zero,
+            ).animate(curved),
+            child: child,
+          ),
+        );
+      },
+      pageBuilder: (context, animation, secondaryAnimation) => Scaffold(
         appBar: AppBar(
           title: Text(
             subject.label,
