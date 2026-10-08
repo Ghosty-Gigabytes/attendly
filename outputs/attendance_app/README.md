@@ -125,3 +125,27 @@ The widget targets a 4×3 launcher footprint with a vertically scrolling list, o
 Dates are displayed day-first (6-Oct, 6 Oct 2026, or 06-10-2026). Date pickers use Indian English. Storage and portal parsing retain their original date keys.
 
 Choose Settings → Appearance to use the device theme, Light, or Dark. The choice is saved on this device. The widget footer includes the fetch date and time; Refresh queues a one-time background IMS update using the saved login, even when scheduled refresh is disabled. It waits for internet and shows Queued/Refreshing while pending. Opening the app cancels background work to avoid competing IMS sessions. CAPTCHA or expired-login issues may require opening the app.
+
+The attendance report determines which subjects appear and their column order. Current-semester registrations supply names/details; registered courses absent from attendance are omitted. An attendance code with no matching metadata is still shown using its code.
+
+Saved attendance opens immediately on launch, including offline. A background sign-in and refresh updates it when possible. Five rejected automatic sign-in/CAPTCHA attempts require manual sign-in; connectivity and report parsing errors preserve offline access. First-time users still need to sign in. The calendar includes a subject selector, themed day highlighting, and a selected-day summary.
+
+Designs: Settings > Appearance > Design offers Classic, Bauhaus, and Material (a Google Material 3-inspired design). Brightness is independent: Dark, Light, or System default. Material is an optional in-app design, not a Google-branded product.
+
+Material accent: Settings > Appearance > Accent color offers presets, a custom hex color, and System color. System color uses Android 12+ OS accents, with blue fallback on unsupported devices. Material is the default for new installs; existing saved design selections are preserved.
+
+## Local data and app information
+
+Settings now includes an offline privacy notice, troubleshooting help, installed Android version/build, Flutter dependency licences and the bundled Roboto licence. Privacy, help and local-data deletion are also accessible before signing in. No support contact or policy URL is invented: configure a real public contact and publish a privacy policy before a Play release. Review native dependency notices separately before publishing.
+
+Delete local data asks for confirmation, clears records for every stored account and semester, timetables, plans, personal logs, app preferences and encrypted credentials/key, cancels background work, and clears widget data/notifications. It leaves university records, exported copies and Android permission choices alone. A non-personal reset epoch prevents older background fetches from saving erased data again. Deletion failures are reported and can be retried; sign-out still retains saved records.
+
+Background refresh defaults to off for new installs and requires an explanation/confirmation when enabled. Existing explicit preferences are preserved. Temporary IMS diagnostic logging and obsolete commented parser/service implementations have been removed; validation and error handling remain.
+
+## Weekly timetable editor
+
+Open Weekly timetable from Settings, Calendar, or What if. The editor is a horizontal-scroll week grid with time-proportional subject blocks, fixed weekday headers and a compact-column option. Tap a slot to add a class or a block to edit it; repeat sessions using Duplicate or Copy day. Subjects are searchable. Attendance count is independent of duration.
+
+AI prompt copies instructions with the current subject list and an optional section/batch. Users supply their photo to their own AI service; Attendly does not upload photos. Import CSV supports paste and Android's document picker (UTF-8, up to 200 KB). Exact columns: day,subject_code,start_time,end_time,attendance_count. A blank-code template can be copied from the import sheet. Quoted fields, BOM, CRLF, abbreviated days and CSV Markdown fences are accepted. Unknown values remain editable. Structural failures import nothing. Missing fields, duplicates, overlaps, invalid times and invalid counts must be fixed or removed before applying. Imports replace or add to the draft, never immediately to the active timetable.
+
+Drafts are saved per account/semester, can be restored or discarded, and are removed by Delete local data. Apply confirms the effective range and replaces only that date interval, preserving schedules outside it. Actual attendance is never marked by timetable editing. Existing persisted rules without an end time use a one-hour display duration; review those end times when editing. Their attendance counts are unchanged.
