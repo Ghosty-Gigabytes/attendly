@@ -21,6 +21,7 @@ class AttendanceWorker(context: Context, params: WorkerParameters) : Worker(cont
     private val completed = CountDownLatch(1)
     @Volatile private var success = false
     override fun doWork(): Result {
+        val generation = AttendancePlatform.generation.get()
         val manual = inputData.getBoolean("manual", false)
         if (AttendancePlatform.foreground || (!manual && !AttendancePlatform.enabled(applicationContext))) return Result.success()
         if (!running.compareAndSet(false, true)) return Result.retry()
@@ -28,7 +29,7 @@ class AttendanceWorker(context: Context, params: WorkerParameters) : Worker(cont
         AttendancePlatform.prefs(applicationContext).edit().putString("refreshState", "running").apply()
         AttendanceWidget.updateAll(applicationContext)
         main.post {
-            if (isStopped || AttendancePlatform.foreground) { completed.countDown(); return@post }
+            if (isStopped || AttendancePlatform.foreground || generation != AttendancePlatform.generation.get()) { completed.countDown(); return@post }
             try {
                 val loader = FlutterInjector.instance().flutterLoader()
                 loader.startInitialization(applicationContext)
@@ -52,7 +53,7 @@ class AttendanceWorker(context: Context, params: WorkerParameters) : Worker(cont
         return if (success) Result.success() else if (runAttemptCount < 2) Result.retry() else Result.failure()
         } finally {
             running.set(false)
-            AttendancePlatform.prefs(applicationContext).edit().putString("refreshState", if (!success && !isStopped && runAttemptCount < 2) "queued" else "").apply()
+            if (generation == AttendancePlatform.generation.get()) AttendancePlatform.prefs(applicationContext).edit().putString("refreshState", if (!success && !isStopped && runAttemptCount < 2) "queued" else "").apply()
             AttendanceWidget.updateAll(applicationContext)
         }
     }

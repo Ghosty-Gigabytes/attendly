@@ -6,12 +6,45 @@ import 'captcha_service.dart';
 import 'portal_service.dart';
 import 'portal_parser.dart';
 import 'platform_service.dart';
+import 'system_accent.dart';
 
 class AppController extends ChangeNotifier {
   final AttendanceDatabase db;
   final PortalService portal;
   AppData data = const AppData();
   String themePreference = 'system';
+  String palettePreference = 'material';
+  String materialAccent = '2463BC';
+  int? systemAccent;
+  int get materialSeed => materialAccent == 'system'
+      ? systemAccent ?? 0xFF2463BC
+      : 0xFF000000 | (int.tryParse(materialAccent, radix: 16) ?? 0x2463BC);
+  Future<void> setMaterialAccent(String value) async {
+    if (value != 'system' && !RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(value)) {
+      return;
+    }
+    materialAccent = value == 'system' ? value : value.toUpperCase();
+    await db.setPreference('materialAccent', materialAccent);
+    if (materialAccent == 'system') await refreshSystemAccent();
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<void> refreshSystemAccent() async {
+    final next = await readSystemAccent();
+    if (_disposed) return;
+    if (next != systemAccent) {
+      systemAccent = next;
+      notifyListeners();
+    }
+  }
+
+  Future<void> setPalette(String value) async {
+    if (!{'classic', 'bauhaus', 'material'}.contains(value)) return;
+    await db.setPreference('palette', value);
+    palettePreference = value;
+    notifyListeners();
+  }
+
   Future<void> setTheme(String value) async {
     await db.setPreference('theme', value);
     themePreference = value;
@@ -20,28 +53,146 @@ class AppController extends ChangeNotifier {
 
   String scope = '';
   bool authenticated = false;
+  bool loginRequired = false;
+  bool _sessionReady = false;
+  bool _restoring = false;
+  bool _disposed = false;
+  int loginFailures = 0;
+  bool deletingLocalData = false;
+  bool get refreshing => busy || _restoring || deletingLocalData;
+  bool get hasLiveSession => _sessionReady;
   int _generation = 0;
   bool busy = false;
   String? error;
   Future<void> _writes = Future.value();
-  final PlatformService platform = PlatformService();
+  final PlatformService platform;
   final CredentialStore credentials;
   final CaptchaService captchaService;
+  final Duration retryDelay;
+  final Future<int?> Function() readSystemAccent;
   AppController(
     this.db,
     this.portal, {
     CredentialStore? credentials,
     CaptchaService? captchaService,
-  }) : credentials = credentials ?? CredentialStore(),
+    PlatformService? platform,
+    this.retryDelay = const Duration(seconds: 1),
+    Future<int?> Function()? systemAccentReader,
+  }) : platform = platform ?? PlatformService(),
+       readSystemAccent = systemAccentReader ?? SystemAccent.read,
+       credentials = credentials ?? CredentialStore(),
        captchaService = captchaService ?? CaptchaService();
   Future<void> initialize() async {
     themePreference = await db.preference('theme') ?? 'system';
-    // Cookies are in-memory. A saved workspace is not evidence of an active
-    // IMS login, and legacy demo/personal-only scopes must never unlock the app.
+    final savedPalette = await db.preference('palette');
+    palettePreference =
+        {'classic', 'bauhaus', 'material'}.contains(savedPalette)
+        ? savedPalette!
+        : 'material';
+    final savedAccent = await db.preference('materialAccent');
+    materialAccent =
+        savedAccent == 'system' ||
+            RegExp(r'^[0-9A-Fa-f]{6}$').hasMatch(savedAccent ?? '')
+        ? savedAccent!
+        : '2463BC';
+    await refreshSystemAccent();
     scope = '';
     data = const AppData();
     authenticated = false;
+    _sessionReady = false;
+    loginRequired = false;
+    loginFailures = 0;
+    final active = await db.preference('active');
+    if (active != null &&
+        active.isNotEmpty &&
+        active != 'demo' &&
+        !active.startsWith('personal:')) {
+      final cached = await db.load(active);
+      if (cached != null &&
+          cached.account.isNotEmpty &&
+          cached.synced != null) {
+        scope = active;
+        data = cached;
+        loginFailures =
+            int.tryParse(
+              await db.preference('loginFailures:${cached.account}') ?? '',
+            ) ??
+            0;
+        loginRequired = loginFailures >= 5;
+        authenticated = !loginRequired;
+      }
+    }
     notifyListeners();
+  }
+
+  /// Open cached records first; a fresh portal session is established quietly.
+  Future<void> refreshInBackground() async {
+    if (_disposed || refreshing || loginRequired || !authenticated) return;
+    if (_sessionReady) {
+      try {
+        await sync();
+      } catch (_) {}
+      if (_sessionReady || _disposed || !authenticated) return;
+    }
+    _restoring = true;
+    error = null;
+    final generation = _generation;
+    notifyListeners();
+    try {
+      final saved = await credentials.read();
+      if (saved == null || saved.username.trim() != data.account) {
+        error =
+            'Saved attendance is available. Sign out and sign in again from Settings to refresh it.';
+        return;
+      }
+      while (loginFailures < 5 && generation == _generation && !_disposed) {
+        try {
+          final challenge = await portal.challenge();
+          final answer = await captchaService.recognize(challenge.image);
+          if (generation != _generation || _disposed) return;
+          if (answer == null || answer.trim().isEmpty) {
+            throw const PortalLoginRejected(
+              'Could not read the login security number.',
+            );
+          }
+          await portal.login(challenge, saved.username, saved.password, answer);
+          if (generation != _generation || _disposed) return;
+          _sessionReady = true;
+          loginFailures = 0;
+          await db.setPreference('loginFailures:${data.account}', '0');
+          // Leave retry mode before importing; parser/network errors are not login failures.
+          _restoring = false;
+          try {
+            await sync();
+          } catch (_) {}
+          return;
+        } on PortalLoginRejected {
+          if (generation != _generation || _disposed) return;
+          loginFailures++;
+          await db.setPreference(
+            'loginFailures:${data.account}',
+            '$loginFailures',
+          );
+          if (loginFailures < 5) {
+            await Future<void>.delayed(retryDelay * loginFailures);
+          }
+        }
+      }
+      if (generation == _generation && !_disposed && loginFailures >= 5) {
+        loginRequired = true;
+        authenticated = false;
+        error =
+            'Automatic sign-in failed 5 times. Please sign in again. Your saved records are still on this device.';
+      }
+    } catch (_) {
+      if (generation == _generation && !_disposed) {
+        error =
+            'Could not refresh right now. You can keep viewing your saved attendance and try again later.';
+      }
+    } finally {
+      _restoring = false;
+      if (!_disposed) notifyListeners();
+    }
   }
 
   Future<void> signIn(
@@ -50,20 +201,31 @@ class AppController extends ChangeNotifier {
     String password,
     String captcha,
   ) async {
+    if (deletingLocalData) return;
+    final generation = _generation;
     await portal.login(challenge, username, password, captcha);
+    if (generation != _generation || _disposed) return;
+    _sessionReady = true;
+    loginRequired = false;
+    loginFailures = 0;
+    await db.setPreference('loginFailures:${username.trim()}', '0');
     String? storageWarning;
     try {
       final saved = await credentials.read();
+      if (generation != _generation || _disposed) return;
       if (saved != null && saved.username != username.trim()) {
         await platform.clear();
       }
+      if (generation != _generation || _disposed) return;
       await credentials.write(username.trim(), password);
     } catch (_) {
       storageWarning =
           'Signed in, but your login could not be saved securely. You may need to sign in again next time.';
     }
+    if (generation != _generation || _disposed) return;
     final oldScope = await db.preference('active');
     final old = oldScope == null ? null : await db.load(oldScope);
+    if (generation != _generation || _disposed) return;
     if (old != null &&
         old.account == username.trim() &&
         !oldScope!.startsWith('personal:') &&
@@ -74,6 +236,7 @@ class AppController extends ChangeNotifier {
       scope = '';
       data = AppData(account: username.trim());
     }
+    if (generation != _generation || _disposed) return;
     try {
       await sync();
     } on PortalSessionExpired {
@@ -81,9 +244,11 @@ class AppController extends ChangeNotifier {
     } catch (_) {
       // An attendance-layout/network failure after confirmed login is not an
       // authentication failure. Show only this user's records and sync error.
+      if (generation != _generation || _disposed) return;
       authenticated = true;
       notifyListeners();
     }
+    if (generation != _generation || _disposed) return;
     if (storageWarning != null) {
       error = error == null ? storageWarning : '$error\n$storageWarning';
       notifyListeners();
@@ -91,10 +256,12 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> mutate(AppData Function(AppData) change) async {
+    if (deletingLocalData) return;
+    final generation = _generation;
     final saveScope = scope;
     // Compute inside the queue so rapid edits cannot overwrite one another.
     await _enqueue(() async {
-      if (scope != saveScope) return;
+      if (scope != saveScope || generation != _generation) return;
       await db.transaction(() async {
         final latest = await db.load(saveScope) ?? data;
         final next = change(latest);
@@ -113,6 +280,20 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> update(AppData next) => mutate((_) => next);
+
+  Future<void> saveTimetableDraft(String value) {
+    final generation = _generation;
+    final savedScope = scope;
+    return _enqueue(() async {
+      if (deletingLocalData ||
+          generation != _generation ||
+          scope != savedScope ||
+          scope.isEmpty) {
+        return;
+      }
+      await db.setPreference('timetableDraft:$scope', value);
+    });
+  }
 
   Future<void> showPersonal(bool value) =>
       mutate((current) => current.copyWith(showPersonal: value));
@@ -192,9 +373,45 @@ class AppController extends ChangeNotifier {
       scenarios: current.scenarios.where((s) => s.id != id).toList(),
     ),
   );
+  Future<void> deleteAllLocalData() async {
+    if (deletingLocalData) return;
+    deletingLocalData = true;
+    _generation++;
+    _sessionReady = false;
+    notifyListeners();
+    try {
+      await credentials.clear();
+      await platform.deleteLocalData();
+      await portal.logout();
+      await _enqueue(() async {
+        await db.deleteAllLocalData();
+        scope = '';
+        data = const AppData();
+        authenticated = false;
+        loginRequired = false;
+        loginFailures = 0;
+        themePreference = 'system';
+        palettePreference = 'material';
+        materialAccent = '2463BC';
+        error = null;
+      });
+    } catch (_) {
+      throw StateError(
+        'Could not finish deleting local data. Please try again.',
+      );
+    } finally {
+      deletingLocalData = false;
+      if (!_disposed) notifyListeners();
+    }
+  }
+
   Future<void> logout() async {
     _generation++;
+    _sessionReady = false;
+    loginRequired = false;
+    loginFailures = 0;
     await _enqueue(() async {
+      await db.setPreference('active', '');
       await credentials.clear();
       await platform.clear();
       await portal.logout();
@@ -207,6 +424,11 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> sync() async {
+    if (_restoring || deletingLocalData) return;
+    if (!_sessionReady && authenticated && data.synced != null) {
+      await refreshInBackground();
+      return;
+    }
     if (busy) return;
     busy = true;
     error = null;
@@ -214,6 +436,8 @@ class AppController extends ChangeNotifier {
     final generation = _generation;
     try {
       final fresh = await portal.fetchAttendance();
+      if (generation != _generation || _disposed) return;
+      _sessionReady = true;
       await _enqueue(() async {
         if (generation != _generation) return;
         final nextScope = '${fresh.account}:${fresh.semester}';
@@ -236,12 +460,17 @@ class AppController extends ChangeNotifier {
         await platform.publish(data, previous: old);
       });
     } catch (e) {
+      if (generation != _generation || _disposed) return;
       error = e.toString();
-      if (e is PortalSessionExpired) authenticated = false;
+      if (e is PortalSessionExpired) {
+        _sessionReady = false;
+        // Cached records remain visible while saved-login retries run.
+        if (data.synced == null) authenticated = false;
+      }
       rethrow;
     } finally {
       busy = false;
-      notifyListeners();
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -258,6 +487,8 @@ class AppController extends ChangeNotifier {
 
   @override
   void dispose() {
+    _disposed = true;
+    _generation++;
     db.close();
     portal.dio.close();
     super.dispose();

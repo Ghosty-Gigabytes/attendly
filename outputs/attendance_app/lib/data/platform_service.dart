@@ -11,6 +11,22 @@ class PlatformService {
       Map<String, dynamic>.from(
         await channel.invokeMapMethod('settings', values) ?? {},
       );
+  Future<Map<String, dynamic>> appInfo() async {
+    try {
+      return Map<String, dynamic>.from(
+        await channel.invokeMapMethod('appInfo') ?? {},
+      );
+    } on MissingPluginException {
+      return {};
+    } on PlatformException {
+      return {};
+    }
+  }
+
+  Future<void> deleteLocalData() async {
+    if (Platform.isAndroid) await channel.invokeMethod('deleteLocalData');
+  }
+
   Future<void> requestNotifications() =>
       const MethodChannel('dev.attendly/permission').invokeMethod('request');
   Future<bool> pinWidget() async =>

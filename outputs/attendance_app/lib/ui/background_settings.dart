@@ -63,7 +63,7 @@ class _BackgroundSettingsState extends State<BackgroundSettings>
         ),
         SizedBox(height: 8),
         Text(
-          'Refreshes about hourly with internet and sufficient battery. Android may delay work. Open the app if IMS needs a manual CAPTCHA.',
+          'When enabled, Attendly uses your saved IMS login to check attendance while the app is closed. Checks run about hourly with internet and sufficient battery; Android may delay them. You can turn this off at any time.',
           style: TextStyle(color: tone(context, muted), fontSize: 12),
         ),
         for (final item in {
@@ -78,7 +78,31 @@ class _BackgroundSettingsState extends State<BackgroundSettings>
             value: values[item.key] == true,
             onChanged: changing || values.isEmpty
                 ? null
-                : (v) => load({item.key: v}),
+                : (v) async {
+                    if (item.key == 'background' && v) {
+                      final enable = await showDialog<bool>(
+                        context: context,
+                        builder: (context) => AlertDialog(
+                          title: const Text('Enable background refresh?'),
+                          content: const Text(
+                            'Attendly will use your saved student ID and password to sign in directly to IMS and fetch attendance while the app is closed. CAPTCHA recognition happens on your device. Android may delay updates. You can turn this off in Settings.',
+                          ),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(context, false),
+                              child: const Text('Not now'),
+                            ),
+                            FilledButton(
+                              onPressed: () => Navigator.pop(context, true),
+                              child: const Text('Enable'),
+                            ),
+                          ],
+                        ),
+                      );
+                      if (enable != true || !mounted) return;
+                    }
+                    await load({item.key: v});
+                  },
           ),
         Text(
           'Notifications: ${values['permission'] == true ? 'allowed' : 'not allowed'}',

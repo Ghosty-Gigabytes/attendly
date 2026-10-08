@@ -33,3 +33,4 @@ flutter:
           weight: 700
   assets:
     - assets/tessdata/
+    - assets/fonts/roboto_license.txt

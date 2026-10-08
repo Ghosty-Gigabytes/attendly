@@ -27,7 +27,11 @@ class ImsBridge(private val context: Context) {
                 val prefs = context.getSharedPreferences("ims_credentials", Context.MODE_PRIVATE)
                 try {
                     when (call.method) {
-                        "clear" -> { check(prefs.edit().clear().commit()); result.success(null) }
+                        "clear" -> {
+                            check(prefs.edit().clear().commit())
+                            KeyStore.getInstance("AndroidKeyStore").apply { load(null); deleteEntry("attendly_ims") }
+                            result.success(null)
+                        }
                         "read" -> {
                             val saved = prefs.getString("encrypted", null)
                             if (saved == null) { result.success(null) }

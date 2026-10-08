@@ -19,9 +19,10 @@ import java.util.concurrent.TimeUnit
 
 object AttendancePlatform {
     @Volatile var foreground = false
+    val generation = java.util.concurrent.atomic.AtomicLong(0)
     private const val workName = "attendly-refresh"
     fun prefs(c: Context) = c.getSharedPreferences("attendance_platform", Context.MODE_PRIVATE)
-    fun enabled(c: Context) = prefs(c).getBoolean("background", true) && c.getSharedPreferences("ims_credentials", Context.MODE_PRIVATE).contains("encrypted")
+    fun enabled(c: Context) = prefs(c).getBoolean("background", false) && c.getSharedPreferences("ims_credentials", Context.MODE_PRIVATE).contains("encrypted")
     fun cancel(c: Context) {
         WorkManager.getInstance(c).cancelUniqueWork(workName)
         WorkManager.getInstance(c).cancelUniqueWork("attendly-manual-refresh")
@@ -64,9 +65,32 @@ object AttendancePlatform {
         prefs(c).edit().putString("seen-$type", fingerprint).apply()
     }
     fun attach(c: Context, engine: FlutterEngine) {
+        var attachedGeneration = generation.get()
         MethodChannel(engine.dartExecutor.binaryMessenger, "dev.attendly/platform").setMethodCallHandler { call, result ->
             try {
+                // A revoked background engine must not repopulate a cleared widget or alerts.
+                if (attachedGeneration != generation.get() && call.method in listOf("publish", "status", "settings")) {
+                    result.success(null)
+                    return@setMethodCallHandler
+                }
                 when (call.method) {
+                    "appInfo" -> {
+                        val info = c.packageManager.getPackageInfo(c.packageName, 0)
+                        val code = if (Build.VERSION.SDK_INT >= 28) info.longVersionCode else info.versionCode.toLong()
+                        result.success(mapOf("version" to info.versionName, "build" to code.toString()))
+                    }
+                    "deleteLocalData" -> {
+                        attachedGeneration = generation.incrementAndGet()
+                        cancel(c)
+                        check(prefs(c).edit().clear().commit())
+                        c.getSystemService(NotificationManager::class.java).cancelAll()
+                        // Clean up CAPTCHA files left by interrupted OCR, without touching other files.
+                        c.cacheDir.listFiles()?.filter { it.isFile && it.name.startsWith("captcha-") && it.extension == "png" }?.forEach {
+                            check(it.delete() || !it.exists())
+                        }
+                        AttendanceWidget.updateAll(c)
+                        result.success(null)
+                    }
                     "settings" -> {
                         val values = call.arguments as? Map<*, *>
                         if (values != null) {
@@ -77,7 +101,7 @@ object AttendancePlatform {
                             if (!enabled(c)) cancel(c) else schedule(c)
                         }
                         val manager = c.getSystemService(NotificationManager::class.java)
-                        result.success(mapOf("background" to prefs(c).getBoolean("background", true), "low" to prefs(c).getBoolean("low", true), "updates" to prefs(c).getBoolean("updates", true), "discrepancies" to prefs(c).getBoolean("discrepancies", true), "permission" to manager.areNotificationsEnabled(), "lastAttempt" to prefs(c).getString("lastAttempt", "Not run yet")))
+                        result.success(mapOf("background" to prefs(c).getBoolean("background", false), "low" to prefs(c).getBoolean("low", true), "updates" to prefs(c).getBoolean("updates", true), "discrepancies" to prefs(c).getBoolean("discrepancies", true), "permission" to manager.areNotificationsEnabled(), "lastAttempt" to prefs(c).getString("lastAttempt", "Not run yet")))
                     }
                     "publish" -> {
                         if (call.hasArgument("widget")) {
@@ -95,6 +119,7 @@ object AttendancePlatform {
                     }
                     "status" -> { prefs(c).edit().putString("lastAttempt", call.argument<String>("message")).apply(); result.success(null) }
                     "clear" -> {
+                        attachedGeneration = generation.incrementAndGet()
                         cancel(c)
                         val edit = prefs(c).edit().remove("widget").remove("lastAttempt")
                         for (type in listOf("low", "updates", "discrepancies", "auth")) { edit.remove("seen-$type"); c.getSystemService(NotificationManager::class.java).cancel(type.hashCode()) }

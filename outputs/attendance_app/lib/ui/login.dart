@@ -5,6 +5,7 @@ import '../data/controller.dart';
 import '../data/portal_service.dart';
 import '../data/portal_parser.dart';
 import 'shared.dart';
+import 'app_information.dart';
 
 class LoginScreen extends StatefulWidget {
   final AppController controller;
@@ -45,7 +46,11 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!mounted) return;
     await refresh(keepError: restoreError);
     // One automatic attempt per screen entry; rejected OCR falls back to manual.
-    if (mounted && saved && challenge != null && captcha.text.isNotEmpty) {
+    if (mounted &&
+        saved &&
+        !widget.controller.loginRequired &&
+        challenge != null &&
+        captcha.text.isNotEmpty) {
       await submit();
     }
   }
@@ -347,7 +352,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          'Your login is encrypted on this device for automatic sign-in. Signing out removes it.',
+                          'Your login is encrypted on this device for automatic sign-in. Signing out removes it. Background refresh is optional in Settings.',
                           style: TextStyle(
                             color: tone(context, muted),
                             fontSize: 12,
@@ -358,6 +363,35 @@ class _LoginScreenState extends State<LoginScreen> {
                     ],
                   ),
                   SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    children: [
+                      TextButton(
+                        onPressed: () => showPrivacyNotice(context),
+                        child: const Text('Privacy'),
+                      ),
+                      TextButton(
+                        onPressed: () => showHelp(context),
+                        child: const Text('Help & support'),
+                      ),
+                      TextButton(
+                        onPressed: loading || submitting
+                            ? null
+                            : () async {
+                                final deleted = await confirmDeleteLocalData(
+                                  context,
+                                  widget.controller,
+                                );
+                                if (!mounted || !deleted) return;
+                                username.clear();
+                                password.clear();
+                                captcha.clear();
+                                await refresh();
+                              },
+                        child: const Text('Delete local data'),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),

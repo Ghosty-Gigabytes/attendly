@@ -41,6 +41,24 @@ class AttendanceDatabase extends GeneratedDatabase {
       );
     },
   );
+
+  /// An epoch prevents an older background refresh restoring erased records.
+  Future<String> get dataEpoch async => await preference('dataEpoch') ?? '';
+
+  Future<void> deleteAllLocalData() async {
+    await customStatement('PRAGMA secure_delete = ON');
+    await transaction(() async {
+      await customStatement('DELETE FROM records');
+      await customStatement('DELETE FROM preferences');
+      await setPreference(
+        'dataEpoch',
+        DateTime.now().microsecondsSinceEpoch.toString(),
+      );
+    });
+    // Checkpoint the WAL after deletion. Other connections may still be closing.
+    await customSelect('PRAGMA wal_checkpoint(TRUNCATE)').get();
+  }
+
   Future<String?> preference(String key) async {
     final rows = await customSelect(
       'SELECT value FROM preferences WHERE id = ?',

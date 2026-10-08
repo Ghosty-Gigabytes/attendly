@@ -17,6 +17,9 @@ Future<void> runBackgroundRefresh() async {
   AttendanceDatabase? db;
   bool success = false;
   try {
+    db = await AttendanceDatabase.open();
+    final database = db;
+    final epoch = await database.dataEpoch;
     final login = await credentials.read();
     if (login == null) {
       success = true;
@@ -37,12 +40,17 @@ Future<void> runBackgroundRefresh() async {
       success = true;
       return;
     }
-    db = await AttendanceDatabase.open();
-    final database = db;
     final scope = '${fresh.account}:${fresh.semester}';
     AppData? previous;
-    late AppData merged;
+    AppData? merged;
     await database.transaction(() async {
+      if (await database.dataEpoch != epoch) return;
+      final saved = await credentials.read();
+      if (saved == null ||
+          saved.username != login.username ||
+          saved.password != login.password) {
+        return;
+      }
       previous = await database.load(scope);
       merged = (previous ?? const AppData()).copyWith(
         subjects: fresh.subjects,
@@ -51,13 +59,15 @@ Future<void> runBackgroundRefresh() async {
         semester: fresh.semester,
         synced: fresh.synced,
       );
-      await database.save(scope, merged);
+      await database.save(scope, merged!);
       await database.setPreference('active', scope);
     });
-    await platform.publish(merged, previous: previous);
-    await platform.status(
-      'Refreshed ${displayDateTime(DateTime.now())}',
-    );
+    if (merged == null) {
+      success = true;
+      return;
+    }
+    await platform.publish(merged!, previous: previous);
+    await platform.status('Refreshed ${displayDateTime(DateTime.now())}');
     success = true;
   } on PortalLoginRejected {
     await platform.status('Open Attendly to complete IMS sign-in.');

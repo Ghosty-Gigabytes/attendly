@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'data/controller.dart';
@@ -12,6 +15,11 @@ final controllerProvider = Provider<AppController>(
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(const [
+      'Roboto',
+    ], await rootBundle.loadString('assets/fonts/roboto_license.txt'));
+  });
   try {
     final controller = AppController(
       await AttendanceDatabase.open(),
@@ -24,6 +32,7 @@ Future<void> main() async {
         child: const AttendlyApp(),
       ),
     );
+    unawaited(controller.refreshInBackground());
   } catch (_) {
     runApp(
       MaterialApp(
