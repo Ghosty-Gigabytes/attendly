@@ -87,7 +87,7 @@ void main() {
   });
 
   testWidgets(
-    'mobile navigation, personal toggle and planner render without overflow',
+    'Classic mobile navigation, personal toggle and planner render without overflow',
     (tester) async {
       await (FontLoader('Roboto')
             ..addFont(rootBundle.load('assets/fonts/roboto-regular.ttf'))
@@ -105,6 +105,7 @@ void main() {
         PortalService(),
       );
       await tester.runAsync(controller.initialize);
+      await tester.runAsync(() => controller.setPalette('classic'));
       controller.scope = 'test-student:semester';
       controller.data = sampleData(DateTime.now());
       controller.authenticated = true;

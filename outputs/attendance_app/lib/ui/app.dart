@@ -3,6 +3,9 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../main.dart';
 import 'shared.dart';
+import 'bauhaus_theme.dart';
+import 'material_design.dart';
+import 'motion.dart';
 import 'dashboard.dart';
 import 'calendar.dart';
 import 'planner_screen.dart';
@@ -22,90 +25,113 @@ class AttendlyApp extends ConsumerWidget {
         'light' => ThemeMode.light,
         _ => ThemeMode.system,
       },
-      darkTheme: ThemeData(
-        useMaterial3: true,
-        brightness: Brightness.dark,
-        fontFamily: 'Roboto',
-        scaffoldBackgroundColor: const Color(0xFF0D0E10),
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: green,
-          brightness: Brightness.dark,
-          surface: const Color(0xFF181A1D),
-          primary: const Color(0xFF83D3B8),
-          onSurface: const Color(0xFFE7E8EA),
-          onSurfaceVariant: const Color(0xFFADB0B6),
-          surfaceContainerLowest: const Color(0xFF090A0C),
-          surfaceContainerLow: const Color(0xFF141619),
-          surfaceContainer: const Color(0xFF1C1E22),
-          surfaceContainerHigh: const Color(0xFF24262B),
-          surfaceContainerHighest: const Color(0xFF2D3035),
-          outline: const Color(0xFF777B83),
-          outlineVariant: const Color(0xFF34373D),
-          surfaceTint: Colors.transparent,
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Color(0xFF0D0E10),
-          surfaceTintColor: Colors.transparent,
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: const Color(0xFF222428),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: BorderSide.none,
-          ),
-        ),
-        textTheme: const TextTheme(
-          headlineLarge: TextStyle(fontSize: 32, fontWeight: FontWeight.w800),
-          headlineSmall: TextStyle(fontSize: 23, fontWeight: FontWeight.w700),
-        ),
-      ),
+      darkTheme: ref.watch(controllerProvider).palettePreference == 'material'
+          ? materialDesignTheme(
+              Brightness.dark,
+              seed: Color(ref.watch(controllerProvider).materialSeed),
+            )
+          : ref.watch(controllerProvider).palettePreference == 'bauhaus'
+          ? bauhausTheme(Brightness.dark)
+          : ThemeData(
+              useMaterial3: true,
+              brightness: Brightness.dark,
+              fontFamily: 'Roboto',
+              scaffoldBackgroundColor: const Color(0xFF0D0E10),
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: green,
+                brightness: Brightness.dark,
+                surface: const Color(0xFF181A1D),
+                primary: const Color(0xFF83D3B8),
+                onSurface: const Color(0xFFE7E8EA),
+                onSurfaceVariant: const Color(0xFFADB0B6),
+                surfaceContainerLowest: const Color(0xFF090A0C),
+                surfaceContainerLow: const Color(0xFF141619),
+                surfaceContainer: const Color(0xFF1C1E22),
+                surfaceContainerHigh: const Color(0xFF24262B),
+                surfaceContainerHighest: const Color(0xFF2D3035),
+                outline: const Color(0xFF777B83),
+                outlineVariant: const Color(0xFF34373D),
+                surfaceTint: Colors.transparent,
+              ),
+              appBarTheme: const AppBarTheme(
+                backgroundColor: Color(0xFF0D0E10),
+                surfaceTintColor: Colors.transparent,
+              ),
+              inputDecorationTheme: InputDecorationTheme(
+                filled: true,
+                fillColor: const Color(0xFF222428),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              textTheme: const TextTheme(
+                headlineLarge: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.w800,
+                ),
+                headlineSmall: TextStyle(
+                  fontSize: 23,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
       locale: const Locale('en', 'IN'),
       supportedLocales: const [Locale('en', 'IN')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      theme: ThemeData(
-        useMaterial3: true,
-        scaffoldBackgroundColor: paper,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: green,
-          surface: Colors.white,
-        ),
-        fontFamily: 'Roboto',
-        textTheme: const TextTheme(
-          headlineLarge: TextStyle(
-            fontSize: 32,
-            fontWeight: FontWeight.w800,
-            color: ink,
-            letterSpacing: -1,
-          ),
-          headlineSmall: TextStyle(
-            fontSize: 23,
-            fontWeight: FontWeight.w700,
-            color: ink,
-          ),
-          bodyMedium: TextStyle(color: ink, fontSize: 14),
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: paper,
-          surfaceTintColor: Colors.transparent,
-        ),
-        inputDecorationTheme: InputDecorationTheme(
-          filled: true,
-          fillColor: paper,
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(14),
-            borderSide: BorderSide.none,
-          ),
-        ),
-        filledButtonTheme: FilledButtonThemeData(
-          style: FilledButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 17),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
+      theme: ref.watch(controllerProvider).palettePreference == 'material'
+          ? materialDesignTheme(
+              Brightness.light,
+              seed: Color(ref.watch(controllerProvider).materialSeed),
+            )
+          : ref.watch(controllerProvider).palettePreference == 'bauhaus'
+          ? bauhausTheme(Brightness.light)
+          : ThemeData(
+              useMaterial3: true,
+              scaffoldBackgroundColor: paper,
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: green,
+                surface: Colors.white,
+              ),
+              fontFamily: 'Roboto',
+              textTheme: const TextTheme(
+                headlineLarge: TextStyle(
+                  fontSize: 32,
+                  fontWeight: FontWeight.w800,
+                  color: ink,
+                  letterSpacing: -1,
+                ),
+                headlineSmall: TextStyle(
+                  fontSize: 23,
+                  fontWeight: FontWeight.w700,
+                  color: ink,
+                ),
+                bodyMedium: TextStyle(color: ink, fontSize: 14),
+              ),
+              appBarTheme: const AppBarTheme(
+                backgroundColor: paper,
+                surfaceTintColor: Colors.transparent,
+              ),
+              inputDecorationTheme: InputDecorationTheme(
+                filled: true,
+                fillColor: paper,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+              filledButtonTheme: FilledButtonThemeData(
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 22,
+                    vertical: 17,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                ),
+              ),
             ),
-          ),
-        ),
-      ),
       home: const AuthGate(),
     ),
   );
@@ -148,7 +174,9 @@ class _AppShellState extends ConsumerState<AppShell>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
+      ref.read(controllerProvider).refreshSystemAccent();
       ref.read(controllerProvider).reloadStored();
+      ref.read(controllerProvider).refreshInBackground();
     }
   }
 
@@ -182,10 +210,12 @@ class _AppShellState extends ConsumerState<AppShell>
                       Icon(Icons.grain_rounded, color: tone(context, green)),
                       SizedBox(width: 8),
                       Text(
-                        'attendly',
+                        isMaterialDesign(context) ? 'Attendly' : 'attendly',
                         style: TextStyle(
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -1,
+                          fontWeight: isMaterialDesign(context)
+                              ? FontWeight.w500
+                              : FontWeight.w800,
+                          letterSpacing: isMaterialDesign(context) ? 0 : -1,
                         ),
                       ),
                     ],
@@ -194,7 +224,20 @@ class _AppShellState extends ConsumerState<AppShell>
           body: SafeArea(
             child: Row(
               children: [
-                if (wide)
+                if (wide && isMaterialDesign(context))
+                  NavigationRail(
+                    extended: MediaQuery.sizeOf(context).width >= 1200,
+                    selectedIndex: index,
+                    onDestinationSelected: (v) => setState(() => index = v),
+                    destinations: [
+                      for (var i = 0; i < labels.length; i++)
+                        NavigationRailDestination(
+                          icon: Icon(icons[i]),
+                          label: Text(labels[i]),
+                        ),
+                    ],
+                  ),
+                if (wide && !isMaterialDesign(context))
                   Container(
                     width: 230,
                     padding: EdgeInsets.all(24),
@@ -309,7 +352,7 @@ class _AppShellState extends ConsumerState<AppShell>
                     alignment: Alignment.topCenter,
                     child: ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: 1150),
-                      child: IndexedStack(index: index, children: screens),
+                      child: SmoothTabStack(index: index, children: screens),
                     ),
                   ),
                 ),
@@ -319,12 +362,23 @@ class _AppShellState extends ConsumerState<AppShell>
           bottomNavigationBar: wide
               ? null
               : NavigationBar(
+                  animationDuration: motionDuration(context, 240),
                   selectedIndex: index,
                   onDestinationSelected: (v) => setState(() => index = v),
                   destinations: [
                     for (var i = 0; i < labels.length; i++)
                       NavigationDestination(
                         icon: Icon(icons[i]),
+                        selectedIcon: isMaterialDesign(context)
+                            ? Icon(
+                                [
+                                  Icons.space_dashboard_rounded,
+                                  Icons.calendar_month_rounded,
+                                  Icons.auto_awesome_rounded,
+                                  Icons.tune_rounded,
+                                ][i],
+                              )
+                            : null,
                         label: labels[i],
                       ),
                   ],
