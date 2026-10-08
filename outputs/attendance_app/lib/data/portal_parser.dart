@@ -110,6 +110,22 @@ class PortalParser {
     );
   }
 
+  String attendanceSemester(String source, String? currentSemester) {
+    bool valid(String? value) =>
+        value != null && RegExp(r'^[1-9][0-9]?$').hasMatch(value.trim());
+    if (valid(currentSemester)) return currentSemester!.trim();
+    final selected = parse(
+      source,
+    ).querySelector('select[name="sem"] option[selected]');
+    final value = selected == null
+        ? null
+        : (selected.attributes['value'] ?? selected.text).trim();
+    if (valid(value)) return value!;
+    throw const PortalException(
+      'Could not verify the current semester. Please retry attendance refresh.',
+    );
+  }
+
   Uri link(String source, Uri page, String label) {
     for (final a in parse(source).querySelectorAll('a[href]')) {
       if (clean(a.text).toLowerCase().replaceAll('.', '') ==
@@ -183,95 +199,13 @@ class PortalParser {
     );
   }
 
-  // ({List<Subject> subjects, List<OfficialDay> days}) attendance(
-  //   String source,
-  //   List<Subject> subjects,
-  //   String academicYear,
-  // ) {
-  //   final doc = parse(source), days = <OfficialDay>[];
-  //   final totals = <String, Map<String, int>>{};
-  //   for (final table in doc.querySelectorAll('table')) {
-  //     final rows = table
-  //         .querySelectorAll('tr')
-  //         .where((r) => closest(r, 'table') == table);
-  //     final columns = <int, String>{};
-  //     for (final row in rows) {
-  //       final cells = row.children
-  //           .where((e) => e.localName == 'td' || e.localName == 'th')
-  //           .toList();
-  //       if (cells.length < 2) continue;
-  //       for (var i = 1; i < cells.length; i++) {
-  //         final text = clean(cells[i].text).toUpperCase();
-  //         for (final subject in subjects) {
-  //           if (RegExp(
-  //             '(^|[^A-Z0-9])${RegExp.escape(subject.code.toUpperCase())}([^A-Z0-9]|\$)',
-  //           ).hasMatch(text)) {
-  //             columns[i] = subject.code;
-  //           }
-  //         }
-  //       }
-  //       if (columns.isEmpty) continue;
-  //       final label = clean(cells.first.text);
-  //       final date = parseDate(label, academicYear);
-  //       for (final entry in columns.entries) {
-  //         if (entry.key >= cells.length) {
-  //           throw const PortalException(
-  //             'An attendance row has missing subject columns. Import stopped.',
-  //           );
-  //         }
-  //         final raw = clean(cells[entry.key].text);
-  //         if (date != null) {
-  //           days.add(OfficialDay(entry.value, dateKey(date), raw));
-  //         }
-  //         final lower = label.toLowerCase();
-  //         if (lower.contains('overall')) {
-  //           final key = lower.contains('present')
-  //               ? 'a'
-  //               : lower.contains('classes') || lower.contains('held')
-  //               ? 't'
-  //               : null;
-  //           if (key != null) {
-  //             final value = int.tryParse(raw);
-  //             if (value == null || value < 0) {
-  //               throw const PortalException(
-  //                 'A subject total is not a valid count. Import stopped.',
-  //               );
-  //             }
-  //             (totals[entry.value] ??= {})[key] = value;
-  //           }
-  //         }
-  //       }
-  //     }
-  //   }
-  //   final updated = subjects.map((s) {
-  //     final total = totals[s.code];
-  //     if (total?['a'] == null ||
-  //         total?['t'] == null ||
-  //         total!['a']! > total['t']!) {
-  //       throw PortalException(
-  //         'Verified totals for ${s.code} were not found. The attendance HTML needs adapter verification.',
-  //       );
-  //     }
-  //     return Subject(s.code, s.name, Counts(total['a']!, total['t']!), s.color);
-  //   }).toList();
-  //   final unique = <String, OfficialDay>{};
-  //   for (final day in days) {
-  //     final key = '${day.subject}:${day.date}';
-  //     if (unique.containsKey(key) && unique[key]!.raw != day.raw) {
-  //       throw const PortalException(
-  //         'Ambiguous duplicate daily attendance. Import stopped.',
-  //       );
-  //     }
-  //     unique[key] = day;
-  //   }
-  //   return (subjects: updated, days: unique.values.toList());
-  // }
   ({List<Subject> subjects, List<OfficialDay> days}) attendance(
     String source,
     List<Subject> subjects,
     String academicYear,
   ) {
     final doc = parse(source);
+
     if (doc.querySelector('frameset') != null &&
         doc.querySelector('table') == null) {
       throw const PortalException(
@@ -281,32 +215,15 @@ class PortalParser {
     }
     final days = <OfficialDay>[];
 
-    if (subjects.isEmpty) {
-      throw const PortalException(
-        'No subjects were found. Attendance import stopped.',
-      );
-    }
-
+    // Registered courses enrich names/colors only. Attendance headers determine
+    // the displayed subjects and each table's column order independently.
     final subjectByCode = <String, Subject>{
-      for (final subject in subjects) subject.code.toUpperCase(): subject,
+      for (final subject in subjects)
+        clean(subject.code).toUpperCase(): subject,
     };
-
     final totals = <String, Map<String, int>>{};
     final overallLabels = <String>{};
-
-    // The attendance page tells us the REAL column order.
-    //
-    // Example:
-    //
-    // Days | DNCP0503 | EAEPC501 | EAEPC502 | ...
-    //
-    // We must use this instead of the order returned by
-    // the Current Sem Courses page.
-    final attendanceColumnMap = <int, String>{};
-
-    // ------------------------------------------------------------
-    // 1. Find the attendance table header
-    // ------------------------------------------------------------
+    final attendanceCodes = <String>{};
 
     for (final table in doc.querySelectorAll('table')) {
       final rows = table
@@ -314,67 +231,6 @@ class PortalParser {
           .where((row) => closest(row, 'table') == table)
           .toList();
 
-      for (final row in rows) {
-        final cells = row.children
-            .where(
-              (element) =>
-                  element.localName == 'td' || element.localName == 'th',
-            )
-            .toList();
-
-        if (cells.length < 2) continue;
-
-        final first = clean(cells.first.text).toLowerCase();
-
-        if (first != 'days' && first != 'date') continue;
-
-        final mapping = <int, String>{};
-
-        for (var i = 1; i < cells.length; i++) {
-          final code = clean(cells[i].text).toUpperCase();
-
-          if (subjectByCode.containsKey(code)) {
-            mapping[i] = code;
-          }
-        }
-
-        if (mapping.length == subjects.length) {
-          attendanceColumnMap
-            ..clear()
-            ..addAll(mapping);
-          break;
-        }
-      }
-
-      if (attendanceColumnMap.isNotEmpty) {
-        break;
-      }
-    }
-
-    if (attendanceColumnMap.length != subjects.length) {
-      throw PortalException(
-        'Could not determine attendance subject column order. '
-        'Expected ${subjects.length} subjects, found '
-        '${attendanceColumnMap.length}.',
-      );
-    }
-
-    // ------------------------------------------------------------
-    // Debug: show the order obtained from the attendance HTML
-    // ------------------------------------------------------------
-
-    final sortedColumns = attendanceColumnMap.entries.toList()
-      ..sort((a, b) => a.key.compareTo(b.key));
-
-    // ------------------------------------------------------------
-    // 2. Parse all tables
-    // ------------------------------------------------------------
-
-    for (final table in doc.querySelectorAll('table')) {
-      final rows = table
-          .querySelectorAll('tr')
-          .where((row) => closest(row, 'table') == table)
-          .toList();
       final localColumns = <int, String>{};
       for (final row in rows) {
         final cells = row.children
@@ -383,18 +239,49 @@ class PortalParser {
         if (cells.isEmpty) continue;
         final label = clean(cells.first.text).toLowerCase();
         if (label != 'days' && label != 'date') continue;
+
         for (var i = 1; i < cells.length; i++) {
           final code = clean(cells[i].text).toUpperCase();
-          if (subjectByCode.containsKey(code)) localColumns[i] = code;
+          if ((cells[i].attributes['colspan'] ?? '1') != '1') {
+            throw PortalException(
+              'Attendance header column ${i + 1} spans multiple columns. Subject order cannot be read safely.',
+            );
+          }
+          if (code.isEmpty) {
+            // Ignore empty spacer columns, but retain their physical index:
+            // removing them would move later subjects onto the wrong records.
+            final hasRecords = rows.any((candidate) {
+              final values = candidate.children
+                  .where((e) => e.localName == 'td' || e.localName == 'th')
+                  .toList();
+              if (values.isEmpty) return false;
+              final rowLabel = clean(values.first.text);
+              if (parseDate(rowLabel, academicYear) == null &&
+                  !rowLabel.toLowerCase().contains('overall') &&
+                  !rowLabel.toLowerCase().startsWith('total')) {
+                return false;
+              }
+              return i < values.length && clean(values[i].text).isNotEmpty;
+            });
+
+            if (!hasRecords) continue;
+
+            throw PortalException(
+              'Attendance column ${i + 1} has records but no subject code in its Days/Date header. Refresh the report; its subject cannot be identified safely.',
+            );
+          }
+          if (localColumns.containsValue(code)) {
+            throw PortalException(
+              'Subject $code appears twice in the attendance header. Subject order cannot be read safely.',
+            );
+          }
+          localColumns[i] = code;
         }
         break;
       }
+
       if (localColumns.isEmpty) continue;
-      if (localColumns.values.toSet().length != subjects.length) {
-        throw const PortalException(
-          'Incomplete subject header in an attendance table. No data imported.',
-        );
-      }
+      attendanceCodes.addAll(localColumns.values);
       for (final row in rows) {
         final cells = row.children
             .where(
@@ -410,10 +297,6 @@ class PortalParser {
         if (label.isEmpty) continue;
 
         final lower = label.toLowerCase();
-
-        // ----------------------------------------------------------
-        // 3. Overall totals
-        // ----------------------------------------------------------
 
         if (lower.contains('overall')) {
           overallLabels.add(label);
@@ -458,10 +341,6 @@ class PortalParser {
           continue;
         }
 
-        // ----------------------------------------------------------
-        // 4. Daily attendance
-        // ----------------------------------------------------------
-
         final date = parseDate(label, academicYear);
 
         if (date == null) {
@@ -486,19 +365,15 @@ class PortalParser {
       }
     }
 
-    // ------------------------------------------------------------
-    // 5. Build subjects in ATTENDANCE HTML order
-    // ------------------------------------------------------------
-
     final orderedSubjects = <Subject>[];
 
-    for (final entry in sortedColumns) {
-      final code = entry.value;
+    if (attendanceCodes.isEmpty) {
+      throw const PortalException(
+        'Could not find subject columns in the attendance page. No attendance was imported.',
+      );
+    }
+    for (final code in attendanceCodes) {
       final original = subjectByCode[code];
-
-      if (original == null) {
-        throw PortalException('Attendance contains unknown subject $code.');
-      }
 
       final total = totals[code];
 
@@ -538,17 +413,13 @@ class PortalParser {
 
       orderedSubjects.add(
         Subject(
-          original.code,
-          original.name,
+          code,
+          original?.name ?? code,
           Counts(attended, totalClasses),
-          original.color,
+          original?.color ?? colors[orderedSubjects.length % colors.length],
         ),
       );
     }
-
-    // ------------------------------------------------------------
-    // 6. Remove duplicate daily entries
-    // ------------------------------------------------------------
 
     final unique = <String, OfficialDay>{};
 

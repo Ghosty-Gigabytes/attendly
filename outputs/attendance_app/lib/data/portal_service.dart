@@ -22,6 +22,7 @@ class PortalService {
   String? _account;
   Uri? _activity;
   bool _initialized = false;
+  CancelToken _requests = CancelToken();
 
   String? get account => _account;
 
@@ -70,11 +71,13 @@ class PortalService {
     Map<String, String>? form,
     bool bytes = false,
   }) async {
+    final token = _requests;
     for (var redirects = 0; redirects < 6; redirects++) {
       _allow(uri);
 
       final response = await dio.requestUri(
         uri,
+        cancelToken: token,
         data: form,
         options: Options(
           method: form == null ? 'GET' : 'POST',
@@ -192,11 +195,8 @@ class PortalService {
       'https://www.imsnsit.org/imsnsit/student_login.php',
     );
 
-    // DEBUG: inspect the session before POST.
-
     final response = await request(loginUri, form: fields);
 
-    // DEBUG: inspect the complete HTTP response.
     final body = response.data?.toString() ?? '';
 
     if (body.contains('HRAND_NUM')) {
@@ -264,210 +264,109 @@ class PortalService {
     _account = username.trim();
   }
 
-  // Future<AppData> fetchAttendance() async {
-  //   if (_activity == null || _account == null) {
-  //     throw const PortalSessionExpired();
-  //   }
-  //
-  //   final menu = await request(_activity!);
-  //
-  //   _checkSession(menu);
-  //
-  //   final activityHtml =
-  //   menu.data.toString();
-  //
-  //   final coursesUrl = parser.link(
-  //     activityHtml,
-  //     menu.realUri,
-  //     'Current Sem Courses Registered.',
-  //   );
-  //
-  //   final attendanceUrl = parser.link(
-  //     activityHtml,
-  //     menu.realUri,
-  //     'My Attendance',
-  //   );
-  //
-  //   final coursePage = await request(coursesUrl);
-  //
-  //   _checkSession(coursePage);
-  //
-  //   final courses = parser.courses(
-  //     coursePage.data.toString(),
-  //   );
-  //
-  //   final attendancePage =
-  //   await request(attendanceUrl);
-  //
-  //   _checkSession(attendancePage);
-  //
-  //   final form = parser.form(
-  //     attendancePage.data.toString(),
-  //     attendancePage.realUri,
-  //     'enc_year',
-  //   );
-  //
-  //   final fields = {
-  //     ...form.fields,
-  //     'sem': courses.semester,
-  //     'submit': 'Submit',
-  //   };
-  //
-  //   final year = fields['year'];
-  //
-  //   if (year == null ||
-  //       !RegExp(r'^\d{4}-\d{2,4}$')
-  //           .hasMatch(year)) {
-  //     throw const PortalException(
-  //       'The attendance academic year could not be verified.',
-  //     );
-  //   }
-  //
-  //   final result = await request(
-  //     form.action,
-  //     form: fields,
-  //   );
-  //
-  //   _checkSession(result);
-  //
-  //   final attendance = parser.attendance(
-  //     result.data.toString(),
-  //     courses.subjects,
-  //     year,
-  //   );
-  //
-  //   return AppData(
-  //     subjects: attendance.subjects,
-  //     officialDays: attendance.days,
-  //     account: _account!,
-  //     semester:
-  //     '$year · Semester ${courses.semester}',
-  //     synced: DateTime.now(),
-  //   );
-  // }
   Future<AppData> fetchAttendance() async {
     try {
-      // ------------------------------------------------------------
-      // 1. Make sure we have an authenticated session
-      // ------------------------------------------------------------
       if (_activity == null || _account == null) {
         throw const PortalSessionExpired();
       }
 
-      // ------------------------------------------------------------
-      // 2. Fetch My Activity page
-      // ------------------------------------------------------------
       final activityResponse = await request(_activity!);
 
       _checkSession(activityResponse);
 
       final activityHtml = activityResponse.data.toString();
 
-      // ------------------------------------------------------------
-      // 3. Get academic year from the SELECTED option on
       //    My Activity
-      // ------------------------------------------------------------
+
       final academicYear = _extractAcademicYear(activityHtml);
 
-      // ------------------------------------------------------------
-      // 4. Find Current Sem Courses Registered
-      // ------------------------------------------------------------
-      final coursesUrl = parser.link(
-        activityHtml,
-        activityResponse.realUri,
-        'Current Sem Courses Registered.',
-      );
+      // Optional metadata: attendance does not depend on the registered roster.
+      var courseSubjects = <Subject>[];
+      String? courseSemester;
+      try {
+        final coursesUrl = parser.link(
+          activityHtml,
+          activityResponse.realUri,
+          'Current Sem Courses Registered.',
+        );
+        final coursePage = await request(coursesUrl);
+        _checkSession(coursePage);
+        final courses = parser.courses(coursePage.data.toString());
+        courseSubjects = courses.subjects;
+        courseSemester = courses.semester;
+      } on PortalSessionExpired {
+        rethrow;
+      } on PortalException {
+        // Names can be unavailable while the attendance report is still usable.
+      } on DioException {
+        // An unavailable metadata page must not prevent importing attendance.
+      }
 
-      // ------------------------------------------------------------
-      // 5. Fetch courses
-      // ------------------------------------------------------------
-      final coursePage = await request(coursesUrl);
-
-      _checkSession(coursePage);
-
-      final coursesHtml = coursePage.data.toString();
-
-      final courses = parser.courses(coursesHtml);
-
-      // ------------------------------------------------------------
-      // 6. Find My Attendance
-      // ------------------------------------------------------------
       final attendanceUrl = parser.link(
         activityHtml,
         activityResponse.realUri,
         'My Attendance',
       );
 
-      // ------------------------------------------------------------
-      // 7. Fetch attendance page
-      // ------------------------------------------------------------
       final attendancePage = await request(attendanceUrl);
 
       _checkSession(attendancePage);
 
       final attendanceHtml = attendancePage.data.toString();
 
-      // ------------------------------------------------------------
-      // 8. Parse attendance form
-      // ------------------------------------------------------------
       final form = parser.form(
         attendanceHtml,
         attendancePage.realUri,
         'enc_year',
       );
 
-      // ------------------------------------------------------------
-      // 9. Build POST fields
       //
       // IMPORTANT:
       // year comes from My Activity.
-      // sem comes from Current Sem Courses Registered.
-      // ------------------------------------------------------------
+      // Use current-semester metadata; an unselected dropdown defaults to 1.
+
+      final semester = parser.attendanceSemester(
+        attendanceHtml,
+        courseSemester,
+      );
       final fields = <String, String>{
         ...form.fields,
         'year': academicYear,
-        'sem': courses.semester,
+        'sem': semester,
         'submit': 'Submit',
       };
 
-      // ------------------------------------------------------------
-      // 10. Submit attendance form
-      // ------------------------------------------------------------
       final result = await request(form.action, form: fields);
 
       _checkSession(result);
 
       final resultHtml = result.data.toString();
 
-      // ------------------------------------------------------------
-      // 11. Parse attendance
-      // ------------------------------------------------------------
       final attendance = parser.attendance(
         resultHtml,
-        courses.subjects,
+        courseSubjects,
         academicYear,
       );
 
-      // ------------------------------------------------------------
-      // 12. Return AppData
-      // ------------------------------------------------------------
       return AppData(
         subjects: attendance.subjects,
         officialDays: attendance.days,
         account: _account!,
-        semester: '$academicYear · Semester ${courses.semester}',
+        semester: '$academicYear · Semester $semester',
         synced: DateTime.now(),
       );
-    } on DioException catch (e) {
+    } on DioException {
       throw PortalException(
-        'Failed to fetch attendance: ${e.message ?? e.toString()}',
+        'Could not connect to IMS. Check your connection and try again.',
       );
     } catch (e) {
       if (e is PortalException) {
         rethrow;
       }
 
-      throw PortalException('Failed to fetch attendance: $e');
+      throw const PortalException(
+        'Could not read the IMS report. Your saved attendance has not been changed. Please try again later.',
+      );
     }
   }
 
@@ -481,6 +380,8 @@ class PortalService {
   }
 
   Future<void> logout() async {
+    _requests.cancel('Signed out');
+    _requests = CancelToken();
     _account = null;
     _activity = null;
     _initialized = false;
