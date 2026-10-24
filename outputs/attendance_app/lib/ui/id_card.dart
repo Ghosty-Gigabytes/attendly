@@ -40,6 +40,17 @@ class _IdCardScreenState extends State<IdCardScreen>
       _lastFrame = null;
     });
   }
+  void _toggleMotion() {
+    _tiltTicker.stop();
+    setState(() {
+      _motion = !_motion;
+      _restSamples = 0;       // restart the ~320 ms calibration window
+      _restX = _restY = 0;
+      _x = _y = _softX = _softY = _targetX = _targetY = 0;
+      _lastFrame = null;
+    });
+  }
+
   void _advanceTilt(Duration elapsed) {
     final dt = _lastFrame == null
         ? 1 / 60
@@ -309,7 +320,7 @@ class _IdCardScreenState extends State<IdCardScreen>
                                       tooltip: _motion
                                           ? 'Disable 3D motion'
                                           : 'Enable 3D motion',
-                                      onPressed: () => setState(() => _motion = !_motion),
+                                      onPressed: _toggleMotion,
                                       icon: Icon(
                                         _motion
                                             ? Icons.view_in_ar_rounded
