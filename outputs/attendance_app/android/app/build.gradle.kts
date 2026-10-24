@@ -17,6 +17,7 @@ android {
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "dev.attendly.attendly"
+        testInstrumentationRunner = "dev.attendly.attendly.WidgetRenderChecks"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -30,6 +31,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Isolated native widget checks never replace a user's installation.
+            if (project.hasProperty("widgetPreview")) applicationIdSuffix = ".widgetpreview"
+        }
         release {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.

@@ -27,7 +27,7 @@ class AttendanceWorker(context: Context, params: WorkerParameters) : Worker(cont
         if (!running.compareAndSet(false, true)) return Result.retry()
         try {
         AttendancePlatform.prefs(applicationContext).edit().putString("refreshState", "running").apply()
-        AttendanceWidget.updateAll(applicationContext)
+        AttendanceWidget.updateRefreshState(applicationContext)
         main.post {
             if (isStopped || AttendancePlatform.foreground || generation != AttendancePlatform.generation.get()) { completed.countDown(); return@post }
             try {
@@ -54,7 +54,7 @@ class AttendanceWorker(context: Context, params: WorkerParameters) : Worker(cont
         } finally {
             running.set(false)
             if (generation == AttendancePlatform.generation.get()) AttendancePlatform.prefs(applicationContext).edit().putString("refreshState", if (!success && !isStopped && runAttemptCount < 2) "queued" else "").apply()
-            AttendanceWidget.updateAll(applicationContext)
+            AttendanceWidget.updateRefreshState(applicationContext)
         }
     }
     private fun cleanup() { ims?.close(); ims = null; engine?.destroy(); engine = null }

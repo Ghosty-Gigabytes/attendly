@@ -114,29 +114,6 @@ class Dashboard extends StatelessWidget {
               ),
             ),
           SizedBox(height: 26),
-          if (controller.refreshing)
-            Padding(
-              padding: EdgeInsets.only(bottom: 16),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 14,
-                    height: 14,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Updating attendance… Your saved records are ready to view.',
-                      style: TextStyle(
-                        color: tone(context, muted),
-                        fontSize: 12,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
           if (controller.error != null)
             Padding(
               padding: EdgeInsets.only(bottom: 18),
@@ -190,7 +167,9 @@ class Dashboard extends StatelessWidget {
             ],
           ),
           Text(
-            data.synced == null
+            controller.refreshing
+                ? 'Updating attendance…'
+                : data.synced == null
                 ? 'No official records fetched yet.'
                 : 'Last fetched: ${longDate(data.synced!)} · ${TimeOfDay.fromDateTime(data.synced!).format(context)}. ',
             style: TextStyle(fontSize: 11, color: tone(context, muted)),

@@ -143,6 +143,7 @@ class TimetableRule {
   final int weekday, hour, minute, weight;
   final DateTime from, until;
   final int? endMinuteOfDay;
+  final String sourceLabel, kind, group;
   int get endMinutes =>
       endMinuteOfDay ?? (hour * 60 + minute + 60).clamp(0, 1440);
   const TimetableRule({
@@ -155,6 +156,9 @@ class TimetableRule {
     required this.from,
     required this.until,
     this.endMinuteOfDay,
+    this.sourceLabel = '',
+    this.kind = 'lecture',
+    this.group = 'all',
   });
   Session? on(DateTime day) {
     if (day.weekday != weekday ||
@@ -178,6 +182,9 @@ class TimetableRule {
     'minute': minute,
     'weight': weight,
     'endMinuteOfDay': endMinutes,
+    'sourceLabel': sourceLabel,
+    'kind': kind,
+    'group': group,
     'from': dateKey(from),
     'until': dateKey(until),
   };
@@ -189,6 +196,9 @@ class TimetableRule {
     minute: j['minute'],
     weight: j['weight'],
     endMinuteOfDay: j['endMinuteOfDay'],
+    sourceLabel: j['sourceLabel'] ?? '',
+    kind: j['kind'] ?? 'lecture',
+    group: j['group'] ?? 'all',
     from: DateTime.parse(j['from']),
     until: DateTime.parse(j['until']),
   );

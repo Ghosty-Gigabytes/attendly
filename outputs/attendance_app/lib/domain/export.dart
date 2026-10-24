@@ -1,7 +1,7 @@
 import 'display_dates.dart';
 import 'models.dart';
 
-String exportCsv(AppData data) {
+String exportCsv(AppData data, {bool use24Hour = true}) {
   String cell(Object value) {
     var text = value.toString();
     // Prevent formulas when the exported CSV is opened in a spreadsheet.
@@ -54,7 +54,7 @@ String exportCsv(AppData data) {
                 .firstOrNull
                 ?.name ??
             '',
-        displayDateTime(s.starts),
+        displayDateTime(s.starts, use24Hour: use24Hour),
         s.status.name,
         '',
         '',

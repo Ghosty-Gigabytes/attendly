@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import '../domain/display_dates.dart';
 import 'dart:convert';
 import 'dart:io';
@@ -6,6 +7,9 @@ import '../domain/models.dart';
 import '../domain/widget_days.dart';
 
 class PlatformService {
+  bool use24Hour = true;
+  String themeMode = 'system';
+  int accentSeed = 0xFF2463BC;
   static const channel = MethodChannel('dev.attendly/platform');
   Future<Map<String, dynamic>> settings([Map<String, bool>? values]) async =>
       Map<String, dynamic>.from(
@@ -29,8 +33,9 @@ class PlatformService {
 
   Future<void> requestNotifications() =>
       const MethodChannel('dev.attendly/permission').invokeMethod('request');
-  Future<bool> pinWidget() async =>
-      await channel.invokeMethod<bool>('pinWidget') ?? false;
+  Future<bool> pinWidget({bool timetable = false}) async =>
+      await channel.invokeMethod<bool>('pinWidget', {'timetable': timetable}) ??
+      false;
   Future<void> clear() async {
     if (!Platform.isAndroid) return;
     try {
@@ -41,7 +46,31 @@ class PlatformService {
   }
 
   Future<void> status(String message) async {
-    await channel.invokeMethod('status', {'message': message});
+    await channel.invokeMethod('status', {
+      'message': message,
+      'timestamp': DateTime.now().toIso8601String(),
+    });
+  }
+
+  Future<void> refreshWidget(AppData data) async {
+    // Startup appearance must never replace an existing snapshot with unloaded data.
+    if (!Platform.isAndroid || data.account.isEmpty || data.synced == null) {
+      return;
+    }
+    try {
+      await channel.invokeMethod('publish', {
+        'widget': publication(
+          data,
+          use24Hour: use24Hour,
+          themeMode: themeMode,
+          accentSeed: accentSeed,
+        )['widget'],
+      });
+    } on MissingPluginException {
+      return;
+    } on PlatformException {
+      return;
+    }
   }
 
   Future<void> publish(AppData data, {AppData? previous}) async {
@@ -49,7 +78,13 @@ class PlatformService {
     try {
       await channel.invokeMethod(
         'publish',
-        publication(data, previous: previous),
+        publication(
+          data,
+          previous: previous,
+          use24Hour: use24Hour,
+          themeMode: themeMode,
+          accentSeed: accentSeed,
+        ),
       );
     } on MissingPluginException {
       /* Tests/non-Android. */
@@ -72,7 +107,13 @@ class PlatformService {
     return jsonEncode([counts?.attended, counts?.held, rows]);
   }
 
-  static Map<String, dynamic> publication(AppData data, {AppData? previous}) {
+  static Map<String, dynamic> publication(
+    AppData data, {
+    AppData? previous,
+    bool use24Hour = true,
+    String themeMode = 'system',
+    int accentSeed = 0xFF2463BC,
+  }) {
     final low =
         data.subjects
             .where((s) => s.official.held > 0 && !s.official.eligible())
@@ -143,6 +184,23 @@ class PlatformService {
     if (sorted.length > 6) lines.add('+${sorted.length - 6} more in app');
     return {
       'widget': jsonEncode({
+        'use24Hour': use24Hour,
+        'themeMode': themeMode,
+        'lightColors': widgetColors(accentSeed, Brightness.light),
+        'darkColors': widgetColors(accentSeed, Brightness.dark),
+        'timetable': data.timetable
+            .map(
+              (rule) => {
+                ...rule.toJson(),
+                'name':
+                    data.subjects
+                        .where((s) => s.code == rule.subject)
+                        .firstOrNull
+                        ?.name ??
+                    rule.subject,
+              },
+            )
+            .toList(),
         'subjects': sorted
             .map(
               (s) => {
@@ -160,7 +218,7 @@ class PlatformService {
             : lines.join('\n'),
         'updated': data.synced == null
             ? 'Not refreshed yet'
-            : 'Fetched ${displayDateTime(data.synced!)} · Tap to open',
+            : 'Fetched ${displayDateTime(data.synced!, use24Hour: use24Hour)} · Tap to open',
       }),
       'alerts': alerts,
       'clear': [
@@ -170,4 +228,24 @@ class PlatformService {
       ],
     };
   }
+}
+
+Map<String, int> widgetColors(int seed, Brightness brightness) {
+  final colors = ColorScheme.fromSeed(
+    seedColor: Color(seed),
+    brightness: brightness,
+  );
+  return {
+    'surface': colors.surfaceContainerLow.toARGB32(),
+    'card': colors.surfaceContainerLowest.toARGB32(),
+    'text': colors.onSurface.toARGB32(),
+    'muted': colors.onSurfaceVariant.toARGB32(),
+    'accent': colors.primary.toARGB32(),
+    'container': colors.primaryContainer.toARGB32(),
+    'onContainer': colors.onPrimaryContainer.toARGB32(),
+    'track': colors.surfaceContainerHighest.toARGB32(),
+    'error': colors.error.toARGB32(),
+    'caution': brightness == Brightness.dark ? 0xFFFFCF79 : 0xFF795900,
+    'positive': brightness == Brightness.dark ? 0xFF8CD6AB : 0xFF246B46,
+  };
 }

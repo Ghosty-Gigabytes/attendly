@@ -1,4 +1,3 @@
-import 'domain/display_dates.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'data/captcha_service.dart';
@@ -66,8 +65,13 @@ Future<void> runBackgroundRefresh() async {
       success = true;
       return;
     }
+    platform.use24Hour = await database.preference('timeFormat') != '12';
+    platform.themeMode = await database.preference('theme') ?? 'system';
+    platform.accentSeed =
+        int.tryParse(await database.preference('widgetAccentSeed') ?? '') ??
+        0xFF2463BC;
     await platform.publish(merged!, previous: previous);
-    await platform.status('Refreshed ${displayDateTime(DateTime.now())}');
+    await platform.status('Attendance refreshed.');
     success = true;
   } on PortalLoginRejected {
     await platform.status('Open Attendly to complete IMS sign-in.');
@@ -88,9 +92,7 @@ Future<void> runBackgroundRefresh() async {
     success = true;
   } catch (_) {
     try {
-      await platform.status(
-        'Refresh failed at ${displayDateTime(DateTime.now())}. Android will retry.',
-      );
+      await platform.status('Refresh failed. Android will retry.');
     } catch (_) {}
   } finally {
     portal.dio.close();

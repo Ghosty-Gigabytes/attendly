@@ -111,7 +111,7 @@ void main() {
     'AI prompt contains actual subjects, section and conservative counting instruction',
     () {
       final prompt = timetableAiPrompt(subjects, 'ECE A / batch 2');
-      expect(prompt, contains('CS101 — Computer Science'));
+      expect(prompt, contains('"code":"CS101"'));
       expect(prompt, contains('ECE A / batch 2'));
       expect(prompt, contains('Do not infer it from duration'));
     },

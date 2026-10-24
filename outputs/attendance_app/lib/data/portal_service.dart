@@ -5,6 +5,8 @@ import 'package:dio/dio.dart';
 import 'package:dio_cookie_manager/dio_cookie_manager.dart';
 
 import '../domain/models.dart';
+import '../domain/student_id.dart';
+import 'id_card_parser.dart';
 import 'portal_parser.dart';
 
 class LoginChallenge {
@@ -21,6 +23,7 @@ class PortalService {
 
   String? _account;
   Uri? _activity;
+  Uri? _idLogo;
   bool _initialized = false;
   CancelToken _requests = CancelToken();
 
@@ -70,6 +73,7 @@ class PortalService {
     Uri uri, {
     Map<String, String>? form,
     bool bytes = false,
+    Uri? referer,
   }) async {
     final token = _requests;
     for (var redirects = 0; redirects < 6; redirects++) {
@@ -80,6 +84,7 @@ class PortalService {
         cancelToken: token,
         data: form,
         options: Options(
+          headers: referer == null ? null : {'Referer': referer.toString()},
           method: form == null ? 'GET' : 'POST',
           responseType: bytes ? ResponseType.bytes : ResponseType.plain,
           contentType: form == null ? null : Headers.formUrlEncodedContentType,
@@ -261,6 +266,7 @@ class PortalService {
       _activity = response.realUri.resolve(links[1].attributes['href']!);
     }
 
+    _idLogo = IdCardParser().logo(body, response.realUri);
     _account = username.trim();
   }
 
@@ -370,6 +376,86 @@ class PortalService {
     }
   }
 
+  Future<StudentIdData> fetchIdCard() async {
+    if (_activity == null || _account == null) {
+      throw const PortalSessionExpired();
+    }
+    final owner = _account!;
+    final adapter = IdCardParser();
+    try {
+      var menu = await request(_activity!);
+      _checkSession(menu);
+      var target = adapter.link(menu.data.toString(), menu.realUri, [
+        'ID Card Details',
+        'ID Card Detail',
+      ]);
+      if (target == null) {
+        final personal = adapter.link(menu.data.toString(), menu.realUri, [
+          'Personal Info',
+          'Personal Information',
+        ]);
+        if (personal != null) {
+          menu = await request(personal);
+          _checkSession(menu);
+          target = adapter.link(menu.data.toString(), menu.realUri, [
+            'ID Card Details',
+            'ID Card Detail',
+          ]);
+        }
+      }
+      if (target == null) {
+        throw const PortalException(
+          'Could not find ID Card Details under Personal Info in IMS. Please try again after signing in.',
+        );
+      }
+      final response = await request(target);
+      _checkSession(response);
+      final card = adapter.parse(
+        response.data.toString(),
+        response.realUri,
+        owner,
+      );
+      Future<Uint8List?> image(Uri? uri) async {
+        if (uri == null) return null;
+        try {
+          final response = await request(uri, bytes: true, referer: target);
+          final data = Uint8List.fromList(List<int>.from(response.data));
+          if (data.length > 3000000 || data.length < 8) return null;
+          final valid =
+              (data[0] == 0xff && data[1] == 0xd8) ||
+              (data[0] == 0x89 &&
+                  data[1] == 0x50 &&
+                  data[2] == 0x4e &&
+                  data[3] == 0x47) ||
+              (data[0] == 0x47 && data[1] == 0x49 && data[2] == 0x46) ||
+              (data.length >= 12 &&
+                  String.fromCharCodes(data.sublist(0, 4)) == 'RIFF' &&
+                  String.fromCharCodes(data.sublist(8, 12)) == 'WEBP');
+          return valid ? data : null;
+        } on DioException {
+          return null;
+        } on PortalException {
+          return null;
+        }
+      }
+
+      final images = await Future.wait([
+        image(card.photo),
+        image(card.signature),
+        image(_idLogo),
+      ]);
+      return card.student.withImages(
+        photo: images[0],
+        signature: images[1],
+        logo: images[2],
+      );
+    } on DioException {
+      throw const PortalException(
+        'Could not load your ID card from IMS. Your saved card is still available.',
+      );
+    }
+  }
+
   void _checkSession(Response<dynamic> response) {
     if (response.data.toString().contains('HRAND_NUM')) {
       _account = null;
@@ -385,6 +471,7 @@ class PortalService {
     _account = null;
     _activity = null;
     _initialized = false;
+    _idLogo = null;
 
     dio.options.headers.clear();
     dio.options.headers.addAll(baseHeaders);

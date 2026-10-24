@@ -20,30 +20,79 @@ Future<void> main() async {
       'Roboto',
     ], await rootBundle.loadString('assets/fonts/roboto_license.txt'));
   });
-  try {
-    final controller = AppController(
-      await AttendanceDatabase.open(),
-      PortalService(),
-    );
-    await controller.initialize();
-    runApp(
-      ProviderScope(
+  runApp(const StartupApp());
+}
+
+class StartupApp extends StatefulWidget {
+  const StartupApp({super.key});
+  @override
+  State<StartupApp> createState() => _StartupAppState();
+}
+
+class _StartupAppState extends State<StartupApp> {
+  AppController? _controller;
+  bool _failed = false;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _start());
+  }
+
+  Future<void> _start() async {
+    try {
+      final controller = AppController(
+        await AttendanceDatabase.open(),
+        PortalService(),
+      );
+      await controller.initialize(deferPlatformWork: true);
+      await controller.prepareStartupTheme();
+      if (!mounted) {
+        controller.dispose();
+        return;
+      }
+      setState(() => _controller = controller);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(controller.finishStartupAppearance());
+        unawaited(controller.refreshInBackground());
+      });
+    } catch (_) {
+      if (mounted) setState(() => _failed = true);
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = _controller;
+    if (controller != null) {
+      return ProviderScope(
         overrides: [controllerProvider.overrideWithValue(controller)],
         child: const AttendlyApp(),
-      ),
-    );
-    unawaited(controller.refreshInBackground());
-  } catch (_) {
-    runApp(
-      MaterialApp(
-        home: Scaffold(
-          body: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Text(
-                'Attendly could not open local storage. Restart the app to try again. Existing records have not been reset.',
-              ),
-            ),
+      );
+    }
+    return MaterialApp(
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(useMaterial3: true),
+      darkTheme: ThemeData(useMaterial3: true, brightness: Brightness.dark),
+      home: Scaffold(
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(32),
+            child: _failed
+                ? const Text(
+                    'Attendly could not open local storage. Restart the app to try again. Existing records have not been reset.',
+                  )
+                : Image.asset(
+                    'assets/splash_logo.png',
+                    width: 288,
+                    height: 288,
+                  ),
           ),
         ),
       ),
@@ -55,3 +104,4 @@ Future<void> main() async {
 void attendanceBackground() {
   runBackgroundRefresh();
 }
+

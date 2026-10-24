@@ -1,21 +1,17 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/row_root" android:layout_width="match_parent" android:layout_height="wrap_content"
     android:orientation="vertical" android:background="@drawable/widget_row_background"
-    android:paddingHorizontal="14dp" android:paddingVertical="12dp" android:gravity="center_vertical">
+    android:paddingHorizontal="14dp" android:paddingVertical="14dp" android:gravity="center_vertical">
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
         <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical" android:layout_marginEnd="12dp">
-            <TextView android:id="@+id/row_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/widget_text" android:textSize="13sp" android:fontFamily="sans-serif-medium" android:maxLines="2" android:ellipsize="end" android:includeFontPadding="false"/>
-            <TextView android:id="@+id/row_code" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/widget_muted" android:textSize="9sp" android:letterSpacing="0.04" android:maxLines="1" android:layout_marginTop="4dp" android:includeFontPadding="false"/>
+            <TextView android:id="@+id/row_name" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/widget_text" android:textSize="14sp" android:fontFamily="sans-serif-medium" android:maxLines="2" android:ellipsize="end" android:includeFontPadding="false"/>
+            <TextView android:id="@+id/row_code" android:layout_width="match_parent" android:layout_height="wrap_content" android:textColor="@color/widget_muted" android:textSize="10sp" android:letterSpacing="0.04" android:maxLines="1" android:layout_marginTop="4dp" android:includeFontPadding="false"/>
         </LinearLayout>
-        <TextView android:id="@+id/row_percent" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="23sp" android:fontFamily="sans-serif-medium" android:includeFontPadding="false"/>
+        <TextView android:id="@+id/row_percent" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textSize="26sp" android:fontFamily="sans-serif-medium" android:includeFontPadding="false"/>
     </LinearLayout>
-    <FrameLayout android:layout_width="match_parent" android:layout_height="5dp" android:layout_marginTop="10dp" android:layout_marginBottom="8dp">
-        <ProgressBar android:id="@+id/row_progress_low" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="match_parent" android:progressDrawable="@drawable/widget_progress_low" android:progressTint="@color/widget_error" android:progressBackgroundTint="@color/widget_track" android:indeterminate="false" android:max="1000" android:importantForAccessibility="no"/>
-        <ProgressBar android:id="@+id/row_progress_caution" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="match_parent" android:progressDrawable="@drawable/widget_progress_caution" android:progressTint="@color/widget_caution" android:progressBackgroundTint="@color/widget_track" android:indeterminate="false" android:max="1000" android:importantForAccessibility="no"/>
-        <ProgressBar android:id="@+id/row_progress_good" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="match_parent" android:progressDrawable="@drawable/widget_progress_good" android:progressTint="@color/widget_positive" android:progressBackgroundTint="@color/widget_track" android:indeterminate="false" android:max="1000" android:importantForAccessibility="no"/>
-    </FrameLayout>
+    <ImageView android:id="@+id/row_progress" android:layout_width="match_parent" android:layout_height="12dp" android:layout_marginTop="12dp" android:layout_marginBottom="10dp" android:scaleType="fitXY" android:importantForAccessibility="no" />
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
         <TextView android:id="@+id/row_advice" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="@color/widget_muted" android:textSize="10sp" android:maxLines="2" android:layout_marginEnd="8dp" android:includeFontPadding="false"/>
-        <TextView android:id="@+id/row_counts" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/widget_muted" android:textSize="9sp" android:includeFontPadding="false"/>
+        <TextView android:id="@+id/row_counts" android:layout_width="wrap_content" android:layout_height="wrap_content" android:textColor="@color/widget_muted" android:textSize="10sp" android:includeFontPadding="false"/>
     </LinearLayout>
 </LinearLayout>

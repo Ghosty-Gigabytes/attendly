@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../data/platform_service.dart';
+import '../domain/display_dates.dart';
 import 'shared.dart';
 
 class BackgroundSettings extends StatefulWidget {
@@ -109,7 +110,7 @@ class _BackgroundSettingsState extends State<BackgroundSettings>
           style: TextStyle(color: tone(context, muted)),
         ),
         Text(
-          'Last background attempt: ${values['lastAttempt'] ?? 'Not run yet'}',
+          'Last background attempt: ${values['lastAttempt'] ?? 'Not run yet'}${DateTime.tryParse(values['lastAttemptAt']?.toString() ?? '') == null ? '' : '\n${displayDateTime(DateTime.parse(values['lastAttemptAt']), use24Hour: MediaQuery.of(context).alwaysUse24HourFormat)}'}',
           style: TextStyle(color: tone(context, muted), fontSize: 12),
         ),
         if (error != null)
@@ -124,21 +125,24 @@ class _BackgroundSettingsState extends State<BackgroundSettings>
               }),
               child: Text('Allow notifications'),
             ),
-            TextButton(
-              onPressed: () => safely(context, () async {
-                final pinned = await service.pinWidget();
-                if (!pinned && context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                        'Long-press your home screen, choose Widgets, then Attendly.',
+            for (final timetable in [false, true])
+              TextButton(
+                onPressed: () => safely(context, () async {
+                  final pinned = await service.pinWidget(timetable: timetable);
+                  if (!pinned && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          'Long-press your home screen, choose Widgets, then Attendly.',
+                        ),
                       ),
-                    ),
-                  );
-                }
-              }),
-              child: Text('Add home-screen widget'),
-            ),
+                    );
+                  }
+                }),
+                child: Text(
+                  timetable ? 'Add timetable widget' : 'Add attendance widget',
+                ),
+              ),
           ],
         ),
       ],

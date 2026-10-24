@@ -196,7 +196,7 @@ class _TimetableEditorState extends State<TimetableEditor> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                '1. Copy the instructions below.\n2. Paste them into your preferred image-capable AI with your timetable photo.\n3. Return here and import its CSV.\n\nCrop student details out of the photo before sharing it. Check the result before saving.',
+                '1. Copy the instructions below.\n2. Paste them into your preferred image-capable AI with your timetable photo.\n3. Return here and import its JSON.\n\nCrop student details out of the photo before sharing it. Check the result before saving.',
               ),
               const SizedBox(height: 16),
               TextField(
@@ -252,7 +252,7 @@ class _TimetableEditorState extends State<TimetableEditor> {
                     labelText: first ? 'Copy from' : 'Copy to',
                   ),
                   items: [
-                    for (var i = 1; i <= 7; i++)
+                    for (var i = 1; i <= weekdays.length; i++)
                       DropdownMenuItem(value: i, child: Text(weekdays[i - 1])),
                   ],
                   onChanged: (v) => set(() {
@@ -354,7 +354,7 @@ class _TimetableEditorState extends State<TimetableEditor> {
                 color: Theme.of(context).colorScheme.error,
               ),
               title: Text(
-                '${e.subject.isEmpty ? 'Unmatched subject' : e.subject} · ${e.day} ${e.start}',
+                '${e.subject.isEmpty ? (e.sourceLabel.isEmpty ? 'Unmatched subject' : e.sourceLabel) : e.subject} · ${e.day} ${e.startMinutes == null ? e.start : displayClock(e.startMinutes!, use24Hour: MediaQuery.of(context).alwaysUse24HourFormat)}',
               ),
               subtitle: Text(issues[e.id]!.toSet().join('\n')),
               trailing: const Icon(Icons.edit_outlined),
@@ -465,7 +465,7 @@ class _TimetableEditorState extends State<TimetableEditor> {
                             FilledButton.tonalIcon(
                               onPressed: saving ? null : importCsv,
                               icon: const Icon(Icons.upload_file),
-                              label: const Text('Import CSV'),
+                              label: const Text('Import timetable'),
                             ),
                             OutlinedButton.icon(
                               onPressed: saving ? null : copyPrompt,
@@ -523,7 +523,7 @@ class _TimetableEditorState extends State<TimetableEditor> {
                         else
                           Text(
                             entries.isEmpty
-                                ? 'Tap a time slot to add your first class, or import CSV.'
+                                ? 'Tap a time slot to add your first class, or import JSON or CSV.'
                                 : 'Tap a class to edit. Swipe sideways to see the rest of the week.',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
@@ -597,6 +597,7 @@ class WeeklyTimetableGrid extends StatelessWidget {
   final List<Subject> subjects;
   final Map<String, List<String>> issues;
   final bool compact;
+  final bool editable;
   final ScrollController horizontal;
   final void Function(TimetableEntry) onEdit;
   final void Function(int, int) onAdd;
@@ -606,6 +607,7 @@ class WeeklyTimetableGrid extends StatelessWidget {
     required this.subjects,
     required this.issues,
     required this.compact,
+    this.editable = true,
     required this.horizontal,
     required this.onEdit,
     required this.onAdd,
@@ -630,13 +632,13 @@ class WeeklyTimetableGrid extends StatelessWidget {
       18,
       (v, e) => math.max(v, (e.endMinutes! / 60).ceil()),
     );
-    const hourHeight = 96.0, gutter = 56.0;
+    const hourHeight = 96.0, gutter = 72.0;
     final height = (last - first) * hourHeight;
     return LayoutBuilder(
       builder: (context, constraints) {
         final columnWidth = math.max(
           compact ? 100.0 : 156.0,
-          (constraints.maxWidth - gutter) / 7,
+          (constraints.maxWidth - gutter) / weekdays.length,
         );
         return Scrollbar(
           controller: horizontal,
@@ -645,7 +647,7 @@ class WeeklyTimetableGrid extends StatelessWidget {
             controller: horizontal,
             scrollDirection: Axis.horizontal,
             child: SizedBox(
-              width: gutter + 7 * columnWidth,
+              width: gutter + weekdays.length * columnWidth,
               child: Column(
                 children: [
                   Container(
@@ -657,7 +659,7 @@ class WeeklyTimetableGrid extends StatelessWidget {
                           width: gutter,
                           child: Center(child: Text('Time')),
                         ),
-                        for (var day = 1; day <= 7; day++)
+                        for (var day = 1; day <= weekdays.length; day++)
                           SizedBox(
                             width: columnWidth,
                             child: Center(
@@ -689,14 +691,19 @@ class WeeklyTimetableGrid extends StatelessWidget {
                                     left: 6,
                                   ),
                                   child: Text(
-                                    clockText(h * 60),
+                                    displayClock(
+                                      h * 60,
+                                      use24Hour: MediaQuery.of(
+                                        context,
+                                      ).alwaysUse24HourFormat,
+                                    ),
                                     style: Theme.of(
                                       context,
                                     ).textTheme.labelSmall,
                                   ),
                                 ),
                               ),
-                            for (var day = 1; day <= 7; day++)
+                            for (var day = 1; day <= weekdays.length; day++)
                               for (var h = first; h < last; h++)
                                 Positioned(
                                   left: gutter + (day - 1) * columnWidth,
@@ -705,14 +712,16 @@ class WeeklyTimetableGrid extends StatelessWidget {
                                   height: hourHeight,
                                   child: Semantics(
                                     label:
-                                        'Add class on ${weekdays[day - 1]} at ${clockText(h * 60)}',
-                                    button: true,
+                                        'Add class on ${weekdays[day - 1]} at ${displayClock(h * 60, use24Hour: MediaQuery.of(context).alwaysUse24HourFormat)}',
+                                    button: editable,
                                     child: Material(
                                       color: day > 5
                                           ? scheme.surfaceContainerLow
                                           : scheme.surface,
                                       child: InkWell(
-                                        onTap: () => onAdd(day, h * 60),
+                                        onTap: editable
+                                            ? () => onAdd(day, h * 60)
+                                            : null,
                                         child: Container(
                                           decoration: BoxDecoration(
                                             border: Border(
@@ -730,7 +739,7 @@ class WeeklyTimetableGrid extends StatelessWidget {
                                     ),
                                   ),
                                 ),
-                            for (var day = 1; day <= 7; day++)
+                            for (var day = 1; day <= weekdays.length; day++)
                               ..._blocks(
                                 context,
                                 positioned
@@ -784,7 +793,11 @@ class WeeklyTimetableGrid extends StatelessWidget {
         (() {
           final name =
               subjects.where((s) => s.code == e.subject).firstOrNull?.name ??
-              (e.subject.isEmpty ? 'Match subject' : e.subject);
+              (e.sourceLabel.isNotEmpty
+                  ? e.sourceLabel
+                  : e.subject.isEmpty
+                  ? 'Match subject'
+                  : e.subject);
           final index = subjects.indexWhere((s) => s.code == e.subject);
           final colors = [
             scheme.primaryContainer,
@@ -802,7 +815,7 @@ class WeeklyTimetableGrid extends StatelessWidget {
             (e.endMinutes! - e.startMinutes!) / 60 * scale - 4,
           );
           final label =
-              '$name, ${e.subject}, ${weekdays[day - 1]}, ${e.start} to ${e.end}, counts as ${e.count} classes${problem ? ', needs attention' : ''}';
+              '$name, ${e.subject}, ${weekdays[day - 1]}, ${e.startMinutes == null ? e.start : displayClock(e.startMinutes!, use24Hour: MediaQuery.of(context).alwaysUse24HourFormat)} to ${e.endMinutes == null ? e.end : displayClock(e.endMinutes!, use24Hour: MediaQuery.of(context).alwaysUse24HourFormat)}, counts as ${e.count} classes${problem ? ', needs attention' : ''}';
           return Positioned(
             left:
                 gutter + (day - 1) * width + assignment[e.id]! * blockWidth + 3,
@@ -853,14 +866,14 @@ class WeeklyTimetableGrid extends StatelessWidget {
                               ),
                               if (c.maxHeight >= 50)
                                 Text(
-                                  e.subject,
+                                  '${e.subject} · ${e.kind}',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(fontSize: 10),
                                 ),
                               if (c.maxHeight >= 36)
                                 Text(
-                                  '${e.start}–${e.end}',
+                                  '${e.startMinutes == null ? e.start : displayClock(e.startMinutes!, use24Hour: MediaQuery.of(context).alwaysUse24HourFormat)}–${e.endMinutes == null ? e.end : displayClock(e.endMinutes!, use24Hour: MediaQuery.of(context).alwaysUse24HourFormat)}',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(fontSize: 10),
@@ -896,6 +909,25 @@ class _ClassSheet extends StatefulWidget {
 class _ClassSheetState extends State<_ClassSheet> {
   late String subject = widget.initial.subject;
   late int? day = widget.initial.weekday;
+  late String kind = widget.initial.kind;
+  late final group = TextEditingController(text: widget.initial.group);
+  bool clockInitialized = false;
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (clockInitialized) return;
+    clockInitialized = true;
+    for (final field in [start, end]) {
+      final minutes = clockMinutes(field.text, end: true);
+      if (minutes != null) {
+        field.text = displayClock(
+          minutes,
+          use24Hour: MediaQuery.of(context).alwaysUse24HourFormat,
+        );
+      }
+    }
+  }
+
   late final start = TextEditingController(text: widget.initial.start),
       end = TextEditingController(text: widget.initial.end),
       count = TextEditingController(text: widget.initial.count);
@@ -905,6 +937,7 @@ class _ClassSheetState extends State<_ClassSheet> {
     start.dispose();
     end.dispose();
     count.dispose();
+    group.dispose();
     super.dispose();
   }
 
@@ -922,6 +955,31 @@ class _ClassSheetState extends State<_ClassSheet> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text('Class details', style: Theme.of(context).textTheme.titleLarge),
+          if (widget.initial.sourceLabel.isNotEmpty)
+            Text('From photo: ${widget.initial.sourceLabel}'),
+          const SizedBox(height: 12),
+          DropdownMenu<String>(
+            label: const Text('Session type'),
+            initialSelection: {'lecture', 'tutorial', 'lab'}.contains(kind)
+                ? kind
+                : null,
+            dropdownMenuEntries: const [
+              DropdownMenuEntry(value: 'lecture', label: 'Lecture'),
+              DropdownMenuEntry(value: 'tutorial', label: 'Tutorial'),
+              DropdownMenuEntry(value: 'lab', label: 'Lab'),
+            ],
+            onSelected: (value) {
+              if (value != null) setState(() => kind = value);
+            },
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: group,
+            decoration: const InputDecoration(
+              labelText: 'Group',
+              helperText: 'Your lab group, or all for a shared class',
+            ),
+          ),
           const SizedBox(height: 16),
           DropdownMenu<String>(
             expandedInsets: EdgeInsets.zero,
@@ -949,7 +1007,7 @@ class _ClassSheetState extends State<_ClassSheet> {
           Wrap(
             spacing: 6,
             children: [
-              for (var i = 1; i <= 7; i++)
+              for (var i = 1; i <= weekdays.length; i++)
                 ChoiceChip(
                   label: Text(weekdays[i - 1].substring(0, 3)),
                   selected: day == i,
@@ -965,26 +1023,33 @@ class _ClassSheetState extends State<_ClassSheet> {
                   child: Padding(
                     padding: EdgeInsets.only(right: first ? 8 : 0),
                     child: TextField(
+                      key: ValueKey(
+                        first ? 'class-start-time' : 'class-end-time',
+                      ),
                       controller: first ? start : end,
                       keyboardType: TextInputType.datetime,
                       decoration: InputDecoration(
-                        labelText: first ? 'Start (HH:MM)' : 'End (HH:MM)',
+                        labelText: first ? 'Start time' : 'End time',
                         suffixIcon: IconButton(
                           tooltip: 'Choose time',
                           icon: const Icon(Icons.schedule),
                           onPressed: () async {
                             final minutes =
-                                clockMinutes((first ? start : end).text) ?? 540;
+                                parseDisplayClock((first ? start : end).text) ??
+                                540;
                             final time = await showTimePicker(
                               context: context,
                               initialTime: TimeOfDay(
-                                hour: minutes ~/ 60,
+                                hour: (minutes ~/ 60) % 24,
                                 minute: minutes % 60,
                               ),
                             );
-                            if (time != null) {
-                              (first ? start : end).text = clockText(
+                            if (time != null && context.mounted) {
+                              (first ? start : end).text = displayClock(
                                 time.hour * 60 + time.minute,
+                                use24Hour: MediaQuery.of(
+                                  context,
+                                ).alwaysUse24HourFormat,
                               );
                             }
                           },
@@ -1048,9 +1113,19 @@ class _ClassSheetState extends State<_ClassSheet> {
       id: duplicate ? 'weekly-${DateTime.now().microsecondsSinceEpoch}' : null,
       day: day == null ? '' : weekdays[day! - 1],
       subject: subject,
-      start: start.text.trim(),
-      end: end.text.trim(),
+      start: parseDisplayClock(start.text) != null
+          ? clockText(parseDisplayClock(start.text)!)
+          : start.text.trim(),
+      end: parseDisplayClock(end.text) != null
+          ? clockText(
+              parseDisplayClock(end.text)! == 0
+                  ? 1440
+                  : parseDisplayClock(end.text)!,
+            )
+          : end.text.trim(),
       count: count.text.trim(),
+      kind: kind,
+      group: group.text.trim(),
     );
     final found = next.issues(widget.subjects);
     if (found.isNotEmpty) {
@@ -1071,7 +1146,7 @@ class _ImportSheet extends StatefulWidget {
 
 class _ImportSheetState extends State<_ImportSheet> {
   final text = TextEditingController();
-  bool append = false, reading = false;
+  bool append = false;
   String? error;
   @override
   void dispose() {
@@ -1092,10 +1167,13 @@ class _ImportSheetState extends State<_ImportSheet> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('Import CSV', style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            'Import timetable',
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           const SizedBox(height: 8),
           const Text(
-            'Paste the AI result or choose a CSV file. Nothing changes in your active timetable until you review and save.',
+            'Paste the JSON or CSV response from your AI. Nothing changes in your active timetable until you review and save.',
           ),
           const SizedBox(height: 12),
           Wrap(
@@ -1109,43 +1187,16 @@ class _ImportSheetState extends State<_ImportSheet> {
                   if (mounted && value != null) text.text = value.text ?? '';
                 },
               ),
-              TextButton.icon(
-                icon: const Icon(Icons.folder_open),
-                label: Text(reading ? 'Reading…' : 'Choose file'),
-                onPressed: reading
-                    ? null
-                    : () async {
-                        setState(() {
-                          reading = true;
-                          error = null;
-                        });
-                        try {
-                          final value = await const MethodChannel(
-                            'dev.attendly/timetable',
-                          ).invokeMethod<String>('pickCsv');
-                          if (mounted && value != null) text.text = value;
-                        } catch (_) {
-                          if (mounted) {
-                            setState(
-                              () => error =
-                                  'Could not open this file. Choose a UTF-8 CSV under 200 KB, or paste its contents.',
-                            );
-                          }
-                        } finally {
-                          if (mounted) setState(() => reading = false);
-                        }
-                      },
-              ),
               TextButton(
                 onPressed: () async {
                   await Clipboard.setData(
-                    const ClipboardData(text: timetableTemplate),
+                    const ClipboardData(text: timetableJsonTemplate),
                   );
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
                         content: Text(
-                          'CSV template copied. Fill in your subject codes.',
+                          'JSON template copied. Fill in your class details.',
                         ),
                       ),
                     );
@@ -1161,9 +1212,9 @@ class _ImportSheetState extends State<_ImportSheet> {
             maxLines: 9,
             maxLength: 200000,
             decoration: const InputDecoration(
-              labelText: 'CSV content',
+              labelText: 'JSON or CSV',
               counterText: '',
-              hintText: timetableHeader,
+              hintText: timetableJsonTemplate,
               border: OutlineInputBorder(),
             ),
             style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
@@ -1191,19 +1242,14 @@ class _ImportSheetState extends State<_ImportSheet> {
           FilledButton.icon(
             icon: const Icon(Icons.calendar_view_week),
             label: const Text('Review in timetable'),
-            onPressed: reading
-                ? null
-                : () {
-                    try {
-                      final rows = importTimetableCsv(
-                        text.text,
-                        widget.subjects,
-                      );
-                      Navigator.pop(context, (rows, append));
-                    } on FormatException catch (e) {
-                      setState(() => error = e.message);
-                    }
-                  },
+            onPressed: () {
+              try {
+                final rows = importTimetable(text.text, widget.subjects);
+                Navigator.pop(context, (rows, append));
+              } on FormatException catch (e) {
+                setState(() => error = e.message);
+              }
+            },
           ),
         ],
       ),

@@ -1,7 +1,6 @@
 package dev.attendly.attendly
 import android.content.Context
 import android.content.Intent
-import android.view.View
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
 import org.json.JSONArray
@@ -24,19 +23,19 @@ class AttendanceWidgetService : RemoteViewsService() {
             val held = s.optInt("held")
             val attended = s.optInt("attended")
             val percent = if (held > 0) attended * 100.0 / held else null
-            val cellHeight = ((height - 46) / subjects.length().coerceAtLeast(1) - 7).coerceIn(96, 124)
+            val cellHeight = ((height - 72) / subjects.length().coerceAtLeast(1) - 7).coerceIn(116, 144)
             return RemoteViews(c.packageName, R.layout.attendance_widget_row).apply {
                 setInt(R.id.row_root, "setMinimumHeight", (cellHeight * c.resources.displayMetrics.density).toInt())
                 setTextViewText(R.id.row_name, s.optString("name").ifBlank { s.optString("code") })
                 setTextViewText(R.id.row_code, s.optString("code"))
                 setTextViewText(R.id.row_percent, if (percent == null) "—" else String.format(Locale.getDefault(), "%.1f%%", percent))
-                val color = when { percent == null -> R.color.widget_muted; percent < 75 -> R.color.widget_error; percent < 80 -> R.color.widget_caution; else -> R.color.widget_positive }
-                setTextColor(R.id.row_percent, c.getColor(color))
-                val selectedBar = when { percent != null && percent < 75 -> R.id.row_progress_low; percent != null && percent < 80 -> R.id.row_progress_caution; else -> R.id.row_progress_good }
-                for (bar in intArrayOf(R.id.row_progress_low, R.id.row_progress_caution, R.id.row_progress_good)) {
-                    setViewVisibility(bar, if (bar == selectedBar) View.VISIBLE else View.GONE)
-                    setProgressBar(bar, 1000, ((percent ?: 0.0) * 10).toInt().coerceIn(0,1000), false)
-                }
+                val style = WidgetStyle(c)
+                val tone = when { percent == null -> "muted"; percent < 75 -> "error"; percent < 80 -> "caution"; else -> "positive" }
+                style.background(this, R.id.row_root, "card", "card")
+                style.text(this, R.id.row_name, "text")
+                for (view in intArrayOf(R.id.row_code, R.id.row_counts, R.id.row_advice)) style.text(this, view, "muted")
+                style.text(this, R.id.row_percent, tone)
+                style.progress(this, percent, tone)
                 setTextViewText(R.id.row_counts, "$attended/$held classes")
                 setTextViewText(R.id.row_advice, s.optString("dayAdvice", "Refresh for day estimate"))
                 setContentDescription(R.id.row_root, "${s.optString("name")}, ${s.optString("code")}, $attended of $held classes. ${s.optString("dayAdvice")}")

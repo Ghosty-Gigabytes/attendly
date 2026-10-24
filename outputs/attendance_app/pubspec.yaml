@@ -19,6 +19,7 @@ dependencies:
   path_provider: ^2.1.5
   path: ^1.9.1
   intl: ^0.20.2
+  sensors_plus: ^7.1.1
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -32,5 +33,6 @@ flutter:
         - asset: assets/fonts/roboto-bold.ttf
           weight: 700
   assets:
+    - assets/splash_logo.png
     - assets/tessdata/
     - assets/fonts/roboto_license.txt

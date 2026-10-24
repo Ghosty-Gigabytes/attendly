@@ -20,6 +20,10 @@ void showPrivacyNotice(
     'Official attendance, your personal logs and notes, timetable, saved plans, and preferences are stored in the app’s private storage on this device. The attendance database does not have separate database encryption. This version has no developer-operated cloud backup, advertising, analytics, or automatic crash-reporting service.',
   ),
   (
+    'Virtual ID card',
+    'Opening ID Card fetches your identity details, photo, student signature and university logo directly from IMS. A copy is kept in private app storage for offline viewing, separately for each account. It is not sent to widgets or notifications. Signing out hides the card; Delete local data erases all saved cards and images. The card is an independent digital view, not a university-issued credential.',
+  ),
+  (
     'Refreshing attendance',
     'Opening the app can refresh saved attendance through IMS. Background refresh is optional: enable it in Settings to allow saved-login access while the app is closed. Android controls when background work runs. You can also refresh from the home-screen widget.',
   ),
@@ -33,7 +37,7 @@ void showPrivacyNotice(
   ),
   (
     'Keeping and deleting data',
-    'Records stay on this device until you delete them or clear the app’s storage. Signing out removes the saved login and clears the widget and alerts, but keeps your records. Delete local data removes all accounts’ saved attendance, personal records, timetables, plans, saved login, and app preferences. It stops scheduled refresh and clears widgets and notifications. It does not delete your university account or change records held by IMS. Android permission choices are managed separately by Android.',
+    'Records stay on this device until you delete them or clear the app’s storage. Signing out removes the saved login and clears the widget and alerts, but keeps your records. Delete local data removes all accounts’ saved attendance, personal records, timetables, plans, ID cards and images, saved login, and app preferences. It stops scheduled refresh and clears widgets and notifications. It does not delete your university account or change records held by IMS. Android permission choices are managed separately by Android.',
   ),
   (
     'Questions and contact',

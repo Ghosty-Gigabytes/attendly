@@ -100,6 +100,18 @@ class SettingsScreen extends StatelessWidget {
           ),
         ),
         SizedBox(height: 20),
+        Text('Time format', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: '12', label: Text('12 hour · 2:00 PM')),
+            ButtonSegment(value: '24', label: Text('24 hour · 14:00')),
+          ],
+          selected: {controller.timeFormat},
+          onSelectionChanged: (v) =>
+              safely(context, () => controller.setTimeFormat(v.first)),
+        ),
+        const SizedBox(height: 20),
         BackgroundSettings(),
         SizedBox(height: 20),
         Text(
@@ -164,7 +176,11 @@ class SettingsScreen extends StatelessWidget {
         SizedBox(height: 20),
         OutlinedButton.icon(
           onPressed: () async {
-            await Clipboard.setData(ClipboardData(text: exportCsv(data)));
+            await Clipboard.setData(
+              ClipboardData(
+                text: exportCsv(data, use24Hour: controller.use24Hour),
+              ),
+            );
             if (context.mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(

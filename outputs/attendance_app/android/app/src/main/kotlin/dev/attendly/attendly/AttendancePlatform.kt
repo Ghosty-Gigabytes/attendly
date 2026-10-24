@@ -26,8 +26,9 @@ object AttendancePlatform {
     fun cancel(c: Context) {
         WorkManager.getInstance(c).cancelUniqueWork(workName)
         WorkManager.getInstance(c).cancelUniqueWork("attendly-manual-refresh")
+        val hadRefreshState = prefs(c).contains("refreshState")
         prefs(c).edit().remove("refreshState").apply()
-        AttendanceWidget.updateAll(c)
+        if (hadRefreshState) AttendanceWidget.updateRefreshState(c)
     }
     fun refreshNow(c: Context) {
         if (!c.getSharedPreferences("ims_credentials", Context.MODE_PRIVATE).contains("encrypted")) {
@@ -42,7 +43,7 @@ object AttendancePlatform {
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 15, TimeUnit.MINUTES).build()
         prefs(c).edit().putString("refreshState", "queued").apply()
         WorkManager.getInstance(c).enqueueUniqueWork("attendly-manual-refresh", ExistingWorkPolicy.KEEP, request)
-        AttendanceWidget.updateAll(c)
+        AttendanceWidget.updateRefreshState(c)
     }
     fun schedule(c: Context) {
         if (!enabled(c) || foreground) return
@@ -88,7 +89,7 @@ object AttendancePlatform {
                         c.cacheDir.listFiles()?.filter { it.isFile && it.name.startsWith("captcha-") && it.extension == "png" }?.forEach {
                             check(it.delete() || !it.exists())
                         }
-                        AttendanceWidget.updateAll(c)
+                        AttendanceWidget.updateAll(c); TimetableWidget.updateAll(c)
                         result.success(null)
                     }
                     "settings" -> {
@@ -101,12 +102,15 @@ object AttendancePlatform {
                             if (!enabled(c)) cancel(c) else schedule(c)
                         }
                         val manager = c.getSystemService(NotificationManager::class.java)
-                        result.success(mapOf("background" to prefs(c).getBoolean("background", false), "low" to prefs(c).getBoolean("low", true), "updates" to prefs(c).getBoolean("updates", true), "discrepancies" to prefs(c).getBoolean("discrepancies", true), "permission" to manager.areNotificationsEnabled(), "lastAttempt" to prefs(c).getString("lastAttempt", "Not run yet")))
+                        result.success(mapOf("background" to prefs(c).getBoolean("background", false), "low" to prefs(c).getBoolean("low", true), "updates" to prefs(c).getBoolean("updates", true), "discrepancies" to prefs(c).getBoolean("discrepancies", true), "permission" to manager.areNotificationsEnabled(), "lastAttempt" to prefs(c).getString("lastAttempt", "Not run yet"), "lastAttemptAt" to prefs(c).getString("lastAttemptAt", null)))
                     }
                     "publish" -> {
                         if (call.hasArgument("widget")) {
-                            prefs(c).edit().putString("widget", call.argument<String>("widget")).apply()
-                            AttendanceWidget.updateAll(c)
+                            val next = call.argument<String>("widget")
+                            if (next != prefs(c).getString("widget", null)) {
+                                prefs(c).edit().putString("widget", next).apply()
+                                AttendanceWidget.updateAll(c, dataOnly = true); TimetableWidget.updateAll(c, dataOnly = true)
+                            }
                         }
                         val alerts = call.argument<List<Map<String, String>>>("alerts") ?: emptyList()
                         for (a in alerts) notify(c, a.getValue("type"), a.getValue("title"), a.getValue("body"), a.getValue("fingerprint"))
@@ -117,17 +121,17 @@ object AttendancePlatform {
                         schedule(c)
                         result.success(null)
                     }
-                    "status" -> { prefs(c).edit().putString("lastAttempt", call.argument<String>("message")).apply(); result.success(null) }
+                    "status" -> { prefs(c).edit().putString("lastAttempt", call.argument<String>("message")).putString("lastAttemptAt", call.argument<String>("timestamp")).apply(); result.success(null) }
                     "clear" -> {
                         attachedGeneration = generation.incrementAndGet()
                         cancel(c)
-                        val edit = prefs(c).edit().remove("widget").remove("lastAttempt")
+                        val edit = prefs(c).edit().remove("widget").remove("lastAttempt").remove("lastAttemptAt")
                         for (type in listOf("low", "updates", "discrepancies", "auth")) { edit.remove("seen-$type"); c.getSystemService(NotificationManager::class.java).cancel(type.hashCode()) }
-                        edit.apply(); AttendanceWidget.updateAll(c); result.success(null)
+                        edit.apply(); AttendanceWidget.updateAll(c); TimetableWidget.updateAll(c); result.success(null)
                     }
                     "pinWidget" -> {
                         val manager = AppWidgetManager.getInstance(c)
-                        result.success(Build.VERSION.SDK_INT >= 26 && manager.isRequestPinAppWidgetSupported && manager.requestPinAppWidget(ComponentName(c, AttendanceWidget::class.java), null, null))
+                        result.success(Build.VERSION.SDK_INT >= 26 && manager.isRequestPinAppWidgetSupported && manager.requestPinAppWidget(ComponentName(c, if (call.argument<Boolean>("timetable") == true) TimetableWidget::class.java else AttendanceWidget::class.java), null, null))
                     }
                     else -> result.notImplemented()
                 }

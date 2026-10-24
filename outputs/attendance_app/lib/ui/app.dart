@@ -11,6 +11,8 @@ import 'calendar.dart';
 import 'planner_screen.dart';
 import 'settings.dart';
 import 'login.dart';
+import 'timetable_screen.dart';
+import 'id_card.dart';
 
 class AttendlyApp extends ConsumerWidget {
   const AttendlyApp({super.key});
@@ -20,6 +22,12 @@ class AttendlyApp extends ConsumerWidget {
     builder: (context, _) => MaterialApp(
       debugShowCheckedModeBanner: false,
       title: 'Attendly',
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(
+          alwaysUse24HourFormat: ref.watch(controllerProvider).use24Hour,
+        ),
+        child: child!,
+      ),
       themeMode: switch (ref.watch(controllerProvider).themePreference) {
         'dark' => ThemeMode.dark,
         'light' => ThemeMode.light,
@@ -181,13 +189,36 @@ class _AppShellState extends ConsumerState<AppShell>
   }
 
   int index = 0;
-  static const labels = ['Overview', 'Calendar', 'What if?', 'Settings'];
+  static const labels = [
+    'Overview',
+    'Calendar',
+    'Timetable',
+    'ID Card',
+    'What if?',
+    'Settings',
+  ];
   static const icons = [
     Icons.space_dashboard_outlined,
     Icons.calendar_month_outlined,
+    Icons.calendar_view_week_outlined,
+    Icons.badge_outlined,
     Icons.auto_awesome_outlined,
     Icons.tune_rounded,
   ];
+  void selectDestination(int destination) {
+    if (destination == 3) {
+      Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) =>
+              IdCardScreen(controller: ref.read(controllerProvider)),
+        ),
+      );
+      return;
+    }
+    setState(() => index = destination);
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = ref.watch(controllerProvider);
@@ -196,8 +227,10 @@ class _AppShellState extends ConsumerState<AppShell>
       builder: (context, _) {
         final wide = MediaQuery.sizeOf(context).width >= 900;
         final screens = [
-          Dashboard(controller, onPlan: () => setState(() => index = 2)),
+          Dashboard(controller, onPlan: () => selectDestination(4)),
           CalendarScreen(controller),
+          TimetableScreen(controller),
+          const SizedBox.shrink(),
           PlannerScreen(controller),
           SettingsScreen(controller),
         ];
@@ -228,7 +261,7 @@ class _AppShellState extends ConsumerState<AppShell>
                   NavigationRail(
                     extended: MediaQuery.sizeOf(context).width >= 1200,
                     selectedIndex: index,
-                    onDestinationSelected: (v) => setState(() => index = v),
+                    onDestinationSelected: selectDestination,
                     destinations: [
                       for (var i = 0; i < labels.length; i++)
                         NavigationRailDestination(
@@ -304,7 +337,7 @@ class _AppShellState extends ConsumerState<AppShell>
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                onTap: () => setState(() => index = i),
+                                onTap: () => selectDestination(i),
                               ),
                             ),
                           ),
@@ -364,7 +397,7 @@ class _AppShellState extends ConsumerState<AppShell>
               : NavigationBar(
                   animationDuration: motionDuration(context, 240),
                   selectedIndex: index,
-                  onDestinationSelected: (v) => setState(() => index = v),
+                  onDestinationSelected: selectDestination,
                   destinations: [
                     for (var i = 0; i < labels.length; i++)
                       NavigationDestination(
@@ -374,6 +407,8 @@ class _AppShellState extends ConsumerState<AppShell>
                                 [
                                   Icons.space_dashboard_rounded,
                                   Icons.calendar_month_rounded,
+                                  Icons.calendar_view_week_rounded,
+                                  Icons.badge_rounded,
                                   Icons.auto_awesome_rounded,
                                   Icons.tune_rounded,
                                 ][i],

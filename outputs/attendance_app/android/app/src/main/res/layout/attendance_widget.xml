@@ -1,6 +1,6 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root" android:layout_width="match_parent" android:layout_height="match_parent"
-    android:orientation="vertical" android:background="@drawable/widget_background" android:padding="12dp">
+    android:orientation="vertical" android:background="@drawable/widget_background" android:padding="16dp">
     <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
         <ListView android:id="@+id/widget_grid" android:layout_width="match_parent" android:layout_height="match_parent"
             android:divider="@android:color/transparent" android:dividerHeight="7dp"
@@ -9,8 +9,8 @@
             android:gravity="center" android:text="Open the app to load attendance"
             android:textColor="@color/widget_text" android:textSize="13sp"/>
     </FrameLayout>
-    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginTop="4dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:layout_marginTop="2dp">
         <TextView android:id="@+id/widget_updated" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:textColor="@color/widget_muted" android:textSize="9sp" android:maxLines="2" android:layout_marginEnd="6dp"/>
-        <Button android:id="@+id/widget_refresh" android:layout_width="wrap_content" android:layout_height="40dp" android:minWidth="64dp" android:minHeight="40dp" android:text="Refresh" android:textAllCaps="false" android:textSize="11sp" android:textColor="@color/widget_accent" android:background="@drawable/widget_row_background" android:contentDescription="Refresh attendance in background"/>
+        <ImageButton android:id="@+id/widget_refresh" android:layout_width="40dp" android:layout_height="40dp" android:padding="10dp" android:scaleType="fitCenter" android:background="@android:color/transparent" android:contentDescription="Refresh attendance in background"/>
     </LinearLayout>
 </LinearLayout>

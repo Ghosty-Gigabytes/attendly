@@ -1,3 +1,5 @@
+import 'dart:convert';
+import '../domain/student_id.dart';
 import 'package:flutter/foundation.dart';
 import '../domain/models.dart';
 import 'database.dart';
@@ -13,12 +15,35 @@ class AppController extends ChangeNotifier {
   final PortalService portal;
   AppData data = const AppData();
   String themePreference = 'system';
+  String timeFormat = '24';
+  bool get use24Hour => timeFormat == '24';
+  Future<void> setTimeFormat(String value) async {
+    if (!{'12', '24'}.contains(value) || deletingLocalData) return;
+    final generation = _generation;
+    await _enqueue(() async {
+      if (generation != _generation || deletingLocalData) return;
+      await db.setPreference('timeFormat', value);
+      timeFormat = value;
+      platform.use24Hour = use24Hour;
+      if (!_disposed) notifyListeners();
+      await platform.refreshWidget(data);
+    });
+  }
+
   String palettePreference = 'material';
-  String materialAccent = '2463BC';
+  String materialAccent = 'system';
   int? systemAccent;
   int get materialSeed => materialAccent == 'system'
       ? systemAccent ?? 0xFF2463BC
       : 0xFF000000 | (int.tryParse(materialAccent, radix: 16) ?? 0x2463BC);
+  Future<void> refreshWidgetAppearance() async {
+    if (_disposed || deletingLocalData) return;
+    platform.themeMode = themePreference;
+    platform.accentSeed = materialSeed;
+    await db.setPreference('widgetAccentSeed', '$materialSeed');
+    if (!_disposed && !deletingLocalData) await platform.refreshWidget(data);
+  }
+
   Future<void> setMaterialAccent(String value) async {
     if (value != 'system' && !RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(value)) {
       return;
@@ -27,6 +52,7 @@ class AppController extends ChangeNotifier {
     await db.setPreference('materialAccent', materialAccent);
     if (materialAccent == 'system') await refreshSystemAccent();
     if (!_disposed) notifyListeners();
+    await refreshWidgetAppearance();
   }
 
   Future<void> refreshSystemAccent() async {
@@ -35,6 +61,7 @@ class AppController extends ChangeNotifier {
     if (next != systemAccent) {
       systemAccent = next;
       notifyListeners();
+      await refreshWidgetAppearance();
     }
   }
 
@@ -49,6 +76,7 @@ class AppController extends ChangeNotifier {
     await db.setPreference('theme', value);
     themePreference = value;
     notifyListeners();
+    await refreshWidgetAppearance();
   }
 
   String scope = '';
@@ -82,7 +110,9 @@ class AppController extends ChangeNotifier {
        readSystemAccent = systemAccentReader ?? SystemAccent.read,
        credentials = credentials ?? CredentialStore(),
        captchaService = captchaService ?? CaptchaService();
-  Future<void> initialize() async {
+  Future<void> initialize({bool deferPlatformWork = false}) async {
+    timeFormat = await db.preference('timeFormat') == '12' ? '12' : '24';
+    platform.use24Hour = use24Hour;
     themePreference = await db.preference('theme') ?? 'system';
     final savedPalette = await db.preference('palette');
     palettePreference =
@@ -94,8 +124,8 @@ class AppController extends ChangeNotifier {
         savedAccent == 'system' ||
             RegExp(r'^[0-9A-Fa-f]{6}$').hasMatch(savedAccent ?? '')
         ? savedAccent!
-        : '2463BC';
-    await refreshSystemAccent();
+        : 'system';
+    if (!deferPlatformWork) await refreshSystemAccent();
     scope = '';
     data = const AppData();
     authenticated = false;
@@ -123,6 +153,26 @@ class AppController extends ChangeNotifier {
       }
     }
     notifyListeners();
+    if (!deferPlatformWork) await refreshWidgetAppearance();
+  }
+
+  Future<void> prepareStartupTheme() async {
+    if (materialAccent != 'system') return;
+    try {
+      systemAccent = await readSystemAccent().timeout(
+        const Duration(seconds: 1),
+      );
+    } catch (_) {
+      // Use the material fallback if the OS colour service is unavailable.
+    }
+  }
+
+  Future<void> finishStartupAppearance() async {
+    try {
+      await refreshWidgetAppearance();
+    } catch (_) {
+      // Optional platform work must not prevent cached attendance from opening.
+    }
   }
 
   /// Open cached records first; a fresh portal session is established quietly.
@@ -253,6 +303,67 @@ class AppController extends ChangeNotifier {
       error = error == null ? storageWarning : '$error\n$storageWarning';
       notifyListeners();
     }
+  }
+
+  Future<StudentIdData?> cachedIdCard() async {
+    if (!authenticated || data.account.isEmpty) return null;
+    final owner = data.account;
+    final raw = await db.preference('idCard:$owner');
+    if (!authenticated || data.account != owner || raw == null || raw.isEmpty) {
+      return null;
+    }
+    try {
+      final card = StudentIdData.fromJson(jsonDecode(raw));
+      return card.rollNumber.toUpperCase() == owner.toUpperCase() ? card : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<StudentIdData> fetchIdCard() async {
+    final owner = data.account;
+    final generation = _generation;
+    if (!authenticated || owner.isEmpty || deletingLocalData) {
+      throw const PortalSessionExpired();
+    }
+    bool current() =>
+        !_disposed &&
+        !deletingLocalData &&
+        generation == _generation &&
+        data.account == owner &&
+        authenticated;
+    // Reuse the existing login task instead of starting a competing CAPTCHA flow.
+    for (
+      var attempts = 0;
+      (busy || _restoring) && attempts < 450 && current();
+      attempts++
+    ) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    if (!current()) throw const PortalSessionExpired();
+    if (busy || _restoring) {
+      throw const PortalException(
+        'IMS is still refreshing. Please try loading the ID card again shortly.',
+      );
+    }
+    if (!_sessionReady) await refreshInBackground();
+    if (!current() || !_sessionReady) throw const PortalSessionExpired();
+    StudentIdData card;
+    try {
+      card = await portal.fetchIdCard();
+    } on PortalSessionExpired {
+      _sessionReady = false;
+      await refreshInBackground();
+      if (!current() || !_sessionReady) rethrow;
+      card = await portal.fetchIdCard();
+    }
+    if (!current()) throw const PortalSessionExpired();
+    await _enqueue(() async {
+      if (!current()) throw const PortalSessionExpired();
+      await db.setPreference('idCard:$owner', jsonEncode(card.toJson()));
+    });
+    if (!current()) throw const PortalSessionExpired();
+    return card;
   }
 
   Future<void> mutate(AppData Function(AppData) change) async {
@@ -391,8 +502,12 @@ class AppController extends ChangeNotifier {
         loginRequired = false;
         loginFailures = 0;
         themePreference = 'system';
+        timeFormat = '24';
+        platform.use24Hour = true;
+        platform.themeMode = 'system';
+        platform.accentSeed = 0xFF2463BC;
         palettePreference = 'material';
-        materialAccent = '2463BC';
+        materialAccent = 'system';
         error = null;
       });
     } catch (_) {
@@ -494,3 +609,4 @@ class AppController extends ChangeNotifier {
     super.dispose();
   }
 }
+

@@ -63,7 +63,13 @@ void main() {
         ).extension<MaterialDesign>(),
         isNotNull,
       );
-      for (final page in ['Overview', 'Calendar', 'What if?', 'Settings']) {
+      for (final page in [
+        'Overview',
+        'Calendar',
+        'Timetable',
+        'What if?',
+        'Settings',
+      ]) {
         await tester.tap(find.widgetWithText(NavigationDestination, page));
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull, reason: '$mode $page');
