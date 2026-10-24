@@ -196,7 +196,7 @@ class _IdCardScreenState extends State<IdCardScreen>
                         if (moving)
                           IgnorePointer(
                             child: ClipRRect(
-                              borderRadius: BorderRadius.circular(16),
+                              borderRadius: BorderRadius.circular(22),
                               child: DecoratedBox(
                                 key: const ValueKey('motion-metal-highlight'),
                                 decoration: BoxDecoration(
@@ -204,13 +204,13 @@ class _IdCardScreenState extends State<IdCardScreen>
                                     begin: Alignment(-1.6 + tiltY * 5, -1 + tiltX * 3),
                                     end: Alignment(1.2 + tiltY * 5, 1 + tiltX * 3),
                                     colors: [
-                                      const Color(0xFF718096).withValues(alpha: .07),
-                                      Colors.white.withValues(alpha: .0),
-                                      Colors.white.withValues(alpha: .32),
-                                      const Color(0xFFE2E9EF).withValues(alpha: .12),
+                                      Colors.transparent,
+                                      const Color(0xFF8A97A6).withValues(alpha: .06), // faint cool shade
+                                      Colors.white.withValues(alpha: .22),            // soft core
+                                      const Color(0xFF8A97A6).withValues(alpha: .06),
                                       Colors.transparent,
                                     ],
-                                    stops: const [0, .34, .48, .56, 1],
+                                    stops: const [.36, .43, .50, .57, .64],
                                   ),
                                 ),
                               ),
