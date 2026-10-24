@@ -87,8 +87,8 @@ class _IdCardScreenState extends State<IdCardScreen>
             _restY += (event.y - _restY) / _restSamples;
             return;
           }
-          _targetX = ((event.y - _restY) / 9.81 * .28).clamp(-.28, .28);
-          _targetY = (-(event.x - _restX) / 9.81 * .28).clamp(-.28, .28);
+          _targetX = ((event.y - _restY) / 9.81 * .28).clamp(-.45, .45);
+          _targetY = (-(event.x - _restX) / 9.81 * .28).clamp(-.45, .45);
           if (!_tiltTicker.isActive) {
             _lastFrame = null;
             _tiltTicker.start();
