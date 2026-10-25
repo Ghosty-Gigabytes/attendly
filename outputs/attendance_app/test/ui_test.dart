@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:ui' as ui;
+import 'package:intl/intl.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -17,9 +18,12 @@ void main() {
     tester,
   ) async {
     await (FontLoader('Roboto')
-      ..addFont(rootBundle.load('assets/fonts/roboto-regular.ttf'))
-      ..addFont(rootBundle.load('assets/fonts/roboto-bold.ttf'))).load();
-    await (FontLoader('MaterialIcons')..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'))).load();
+          ..addFont(rootBundle.load('assets/fonts/roboto-regular.ttf'))
+          ..addFont(rootBundle.load('assets/fonts/roboto-bold.ttf')))
+        .load();
+    await (FontLoader(
+      'MaterialIcons',
+    )..addFont(rootBundle.load('fonts/MaterialIcons-Regular.otf'))).load();
     tester.view.physicalSize = const Size(390, 844);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -57,7 +61,11 @@ void main() {
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       if (screen == 'Settings') {
-        await tester.scrollUntilVisible(find.byType(SegmentedButton<String>), 250, scrollable: find.byType(Scrollable).first);
+        await tester.scrollUntilVisible(
+          find.byType(SegmentedButton<String>),
+          250,
+          scrollable: find.byType(Scrollable).first,
+        );
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
       }
@@ -143,7 +151,7 @@ void main() {
       await capture('calendar');
       await tester.tap(find.text('What if?').last);
       await tester.pumpAndSettle();
-      expect(find.text('What if you took a break?'), findsOneWidget);
+      expect(find.text('When are you planning?'), findsOneWidget);
       expect(tester.takeException(), isNull);
       await capture('planner');
       await tester.tap(find.text('Settings').last);
@@ -174,17 +182,29 @@ void main() {
       final personalBefore = controller.data.sessions.length;
       await tester.tap(find.text('What if?').last);
       await tester.pumpAndSettle();
-      for (
-        var i = 0;
-        i < 20 && find.text('Take day off').evaluate().isEmpty;
-        i++
-      ) {
-        await tester.drag(find.byType(Scrollable).first, const Offset(0, -250));
-        await tester.pumpAndSettle();
-      }
-      await tester.ensureVisible(find.text('Take day off').first);
+      await tester.scrollUntilVisible(
+        find.text('2 · Classes'),
+        -250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('2 · Classes'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Take day off').first);
+      final now = DateTime.now();
+      var nextClassDay = DateTime(now.year, now.month, now.day + 1);
+      while (nextClassDay.weekday > 5) {
+        nextClassDay = nextClassDay.add(const Duration(days: 1));
+      }
+      final dayChip = find.text(DateFormat('EEE · d-MMM').format(nextClassDay));
+      await tester.ensureVisible(dayChip);
+      await tester.pumpAndSettle();
+      await tester.tap(dayChip);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Day off'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Day off'));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull);
       expect(controller.data.subjects.first.official.toJson(), officialBefore);

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart' hide Baseline;
+import 'package:intl/intl.dart';
 import '../data/controller.dart';
 import '../domain/models.dart';
 import '../domain/planner.dart';
@@ -14,13 +15,14 @@ class PlannerScreen extends StatefulWidget {
 }
 
 class _PlannerScreenState extends State<PlannerScreen> {
-  late DateTime from = dayOnly(DateTime.now()).add(Duration(days: 1));
-  late DateTime until = from.add(Duration(days: 13));
+  late DateTime from = dayOnly(DateTime.now()).add(const Duration(days: 1));
+  late DateTime until = DateTime(from.year, from.month, from.day + 6);
   Baseline baseline = Baseline.official;
-  int target = 75;
-  String name = 'My leave experiment';
-  String? savedId;
-  String? scope;
+  int target = 75, step = 0;
+  String name = 'My leave plan';
+  String? savedId, scope;
+  DateTime? selectedDay;
+  final scroll = ScrollController();
   Map<String, PlanAction> actions = {};
   List<Session> extras = [];
   Scenario get plan => Scenario(
@@ -33,16 +35,101 @@ class _PlannerScreenState extends State<PlannerScreen> {
     actions: actions,
     extras: extras,
   );
-  void load(Scenario p) => setState(() {
-    savedId = p.id;
-    name = p.name;
-    from = p.from;
-    until = p.until;
-    baseline = p.baseline;
-    target = p.target;
-    actions = {...p.actions};
-    extras = [...p.extras];
-  });
+  @override
+  void dispose() {
+    scroll.dispose();
+    super.dispose();
+  }
+
+  void go(int value) {
+    setState(() => step = value);
+    if (scroll.hasClients) scroll.jumpTo(0);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && scroll.hasClients) scroll.jumpTo(0);
+    });
+  }
+
+  void load(Scenario p) {
+    setState(() {
+      savedId = p.id;
+      name = p.name;
+      from = p.from;
+      until = p.until;
+      baseline = p.baseline;
+      target = p.target;
+      actions = {...p.actions};
+      extras = [...p.extras];
+      selectedDay = from;
+    });
+    go(0);
+  }
+
+  void reset() {
+    setState(() {
+      from = dayOnly(DateTime.now()).add(const Duration(days: 1));
+      until = DateTime(from.year, from.month, from.day + 6);
+      actions = {};
+      extras = [];
+      savedId = null;
+      name = 'My leave plan';
+      baseline = Baseline.official;
+      target = 75;
+      selectedDay = from;
+    });
+    go(0);
+  }
+
+  Future<void> chooseRange() async {
+    final tomorrow = dayOnly(DateTime.now()).add(const Duration(days: 1));
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: tomorrow,
+      lastDate: tomorrow.add(const Duration(days: 365)),
+      initialDateRange: from.isBefore(tomorrow)
+          ? null
+          : DateTimeRange(start: from, end: until),
+      helpText: 'Choose the period to simulate',
+    );
+    if (range == null || !mounted) return;
+    if (range.end.difference(range.start).inDays >= 120) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Choose up to 120 days.')));
+      return;
+    }
+    setState(() {
+      from = range.start;
+      until = range.end;
+      selectedDay = from;
+    });
+  }
+
+  Future<void> save() async {
+    final value = await askText(context, 'Save leave plan', initial: name);
+    if (value == null || !mounted) return;
+    setState(() => name = value);
+    final snapshot = plan;
+    try {
+      await widget.controller.saveScenario(snapshot);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not save this plan. Please try again.'),
+          ),
+        );
+      }
+      return;
+    }
+    if (mounted) {
+      setState(() => savedId = snapshot.id);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Plan saved. Your attendance has not changed.'),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,409 +139,592 @@ class _PlannerScreenState extends State<PlannerScreen> {
       actions = {};
       extras = [];
       savedId = null;
+      step = 0;
+      selectedDay = null;
+      baseline = Baseline.official;
+      target = 75;
+      name = 'My leave plan';
+      from = dayOnly(DateTime.now()).add(const Duration(days: 1));
+      until = DateTime(from.year, from.month, from.day + 6);
     }
-    final scenario = plan,
-        sessions = plannedSessions(data, scenario),
-        results = project(data, scenario);
-    final dates = sessions.map((s) => dateKey(s.starts)).toSet().toList();
-    final stale = from.isBefore(dayOnly(DateTime.now()).add(Duration(days: 1)));
+    final scenario = plan;
+    final sessions = plannedSessions(data, scenario);
+    final stale = from.isBefore(
+      dayOnly(DateTime.now()).add(const Duration(days: 1)),
+    );
+    final canPlan = data.subjects.isNotEmpty && sessions.isNotEmpty && !stale;
     return ListView(
-      padding: EdgeInsets.all(24),
+      controller: scroll,
+      padding: const EdgeInsets.all(24),
       children: [
-        Heading(
-          'Make room for life',
-          isMaterialDesign(context)
-              ? 'Leave planner'
-              : 'What if you took a break?',
-          'Try a plan. See every subject’s outcome. Your actual records stay untouched.',
+        const Heading(
+          'Try a leave plan',
+          'What if?',
+          'Choose your dates, mark what you’ll miss, and see each subject’s attendance. Your real records stay unchanged.',
         ),
-        Surface(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                isMaterialDesign(context)
-                    ? 'Starting point'
-                    : '01  SET YOUR STARTING POINT',
-                style: TextStyle(
-                  color: tone(context, muted),
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.3,
-                ),
-              ),
-              SizedBox(height: 16),
-              Wrap(
-                spacing: 18,
-                runSpacing: 16,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  SegmentedButton<Baseline>(
-                    segments: [
-                      ButtonSegment(
-                        value: Baseline.official,
-                        label: Text('Official'),
-                      ),
-                      ButtonSegment(
-                        value: Baseline.personal,
-                        label: Text('With personal'),
-                      ),
-                    ],
-                    selected: {baseline},
-                    onSelectionChanged: (v) =>
-                        setState(() => baseline = v.first),
-                  ),
-                  AppDropdown<int>(
-                    value: target,
-                    items: [
-                      for (final p in [75, 80, 85, 90, 95])
-                        DropdownMenuItem(value: p, child: Text('Target: $p%')),
-                    ],
-                    onChanged: (v) => setState(() => target = v!),
-                  ),
-                ],
-              ),
-              SizedBox(height: 14),
-              Text(
-                baseline == Baseline.official
-                    ? 'Uses your latest IMS attendance. Classes your teachers have not uploaded yet are not included.'
-                    : 'Uses IMS attendance and your logs for days IMS has not updated yet.',
-                style: TextStyle(
-                  color: tone(context, muted),
-                  fontSize: 12,
-                  height: 1.5,
-                ),
-              ),
-              SizedBox(height: 16),
-              OutlinedButton.icon(
-                onPressed: () async {
-                  final tomorrow = dayOnly(
-                    DateTime.now(),
-                  ).add(Duration(days: 1));
-                  final range = await showDateRangePicker(
-                    context: context,
-                    firstDate: tomorrow,
-                    lastDate: tomorrow.add(Duration(days: 365)),
-                    initialDateRange: stale
-                        ? null
-                        : DateTimeRange(start: from, end: until),
-                    helpText: 'Choose your planning window (up to 120 days)',
-                  );
-                  if (range != null && context.mounted) {
-                    if (range.end.difference(range.start).inDays > 120) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            'Choose a planning window of 120 days or less.',
-                          ),
-                        ),
-                      );
-                      return;
-                    }
-                    setState(() {
-                      from = range.start;
-                      until = range.end;
-                    });
-                  }
-                },
-                icon: Icon(Icons.date_range, size: 18),
-                label: Text('${shortDate(from)} → ${shortDate(until)}'),
-              ),
-              SizedBox(height: 14),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(
-                    Icons.info_outline,
-                    size: 16,
-                    color: tone(context, green),
-                  ),
-                  SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      'Assumption: attend every other scheduled class in this window. Mark holidays and cancellations below. Timetable coverage limits the projection.',
-                      style: TextStyle(
-                        color: tone(context, green),
-                        fontSize: 12,
-                        height: 1.5,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              if (stale)
-                Padding(
-                  padding: EdgeInsets.only(top: 12),
-                  child: Text(
-                    'This saved plan includes past dates. Choose a future window before using its projections.',
-                    style: TextStyle(
-                      color: tone(context, red),
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-        ),
-        SizedBox(height: 22),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+        Row(
           children: [
-            FilledButton.icon(
-              onPressed: stale
-                  ? null
-                  : () async {
-                      final value = await askText(
-                        context,
-                        'Save this experiment',
-                        initial: name,
-                      );
-                      if (value != null && context.mounted) {
-                        setState(() => name = value);
-                        final snapshot = plan;
-                        await safely(
-                          context,
-                          () => widget.controller.saveScenario(snapshot),
-                        );
-                        setState(() => savedId = snapshot.id);
-                      }
-                    },
-              icon: Icon(Icons.bookmark_outline, size: 17),
-              label: Text('Save plan'),
-            ),
-            OutlinedButton.icon(
-              onPressed: () => setState(() {
-                actions = {};
-                extras = [];
-                savedId = null;
-                name = 'My leave experiment';
-              }),
-              icon: Icon(Icons.restart_alt, size: 17),
-              label: Text('Reset'),
-            ),
-            OutlinedButton.icon(
-              onPressed: sessions.isEmpty || stale
-                  ? null
-                  : () => findDays(context, data, scenario),
-              icon: Icon(Icons.travel_explore, size: 17),
-              label: Text('Find leave dates'),
-            ),
-            OutlinedButton.icon(
-              onPressed: data.subjects.isEmpty || stale
-                  ? null
-                  : () => addExtra(context, data),
-              icon: Icon(Icons.add, size: 17),
-              label: Text('Hypothetical class'),
-            ),
-            OutlinedButton.icon(
-              onPressed: data.scenarios.isEmpty || stale
-                  ? null
-                  : () => comparePlans(context, data, scenario),
-              icon: Icon(Icons.compare_arrows, size: 17),
-              label: Text('Compare plans'),
-            ),
+            for (var i = 0; i < 3; i++)
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: TextButton(
+                    onPressed: i == 0 || canPlan ? () => go(i) : null,
+                    style: TextButton.styleFrom(
+                      backgroundColor: step == i
+                          ? Theme.of(context).colorScheme.secondaryContainer
+                          : null,
+                      foregroundColor: step == i
+                          ? Theme.of(context).colorScheme.onSecondaryContainer
+                          : null,
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 14,
+                        horizontal: 2,
+                      ),
+                    ),
+                    child: Text(
+                      ['1 · Dates', '2 · Classes', '3 · Results'][i],
+                      textAlign: TextAlign.center,
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
-        if (data.scenarios.isNotEmpty) ...[
-          SizedBox(height: 18),
+        const SizedBox(height: 20),
+        if (step == 0) ..._setup(data, sessions, stale),
+        if (step == 1) ..._classes(data, scenario, sessions),
+        if (step == 2) ..._results(data, scenario, sessions),
+        const SizedBox(height: 24),
+        Wrap(
+          alignment: WrapAlignment.end,
+          spacing: 12,
+          runSpacing: 8,
+          children: [
+            if (step > 0)
+              OutlinedButton.icon(
+                onPressed: () => go(step - 1),
+                icon: const Icon(Icons.arrow_back),
+                label: const Text('Back'),
+              ),
+            if (step < 2)
+              FilledButton.icon(
+                onPressed: canPlan ? () => go(step + 1) : null,
+                icon: Icon(
+                  step == 0 ? Icons.arrow_forward : Icons.insights_outlined,
+                ),
+                label: Text(step == 0 ? 'Choose classes' : 'See results'),
+              ),
+            if (step == 2)
+              FilledButton.icon(
+                onPressed: stale ? null : save,
+                icon: const Icon(Icons.bookmark_outline),
+                label: const Text('Save plan'),
+              ),
+          ],
+        ),
+        const SizedBox(height: 28),
+      ],
+    );
+  }
+
+  List<Widget> _setup(AppData data, List<Session> sessions, bool stale) => [
+    Surface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Text(
-            'SAVED EXPERIMENTS',
-            style: TextStyle(
-              color: tone(context, muted),
-              fontSize: 10,
-              letterSpacing: 1.2,
-              fontWeight: FontWeight.w700,
-            ),
+            'When are you planning?',
+            style: Theme.of(context).textTheme.titleLarge,
           ),
-          SizedBox(height: 8),
+          const SizedBox(height: 8),
+          const Text(
+            'Include the days off and any later classes you plan to attend.',
+          ),
+          const SizedBox(height: 16),
           Wrap(
             spacing: 8,
             runSpacing: 8,
             children: [
-              for (final saved in data.scenarios)
-                InputChip(
-                  label: Text(saved.name),
-                  selected: savedId == saved.id,
-                  onPressed: () => load(saved),
-                  onDeleted: () => safely(
-                    context,
-                    () => widget.controller.deleteScenario(saved.id),
+              for (final days in [7, 14])
+                ActionChip(
+                  label: Text('Next $days days'),
+                  onPressed: () => setState(() {
+                    from = dayOnly(DateTime.now()).add(const Duration(days: 1));
+                    until = DateTime(
+                      from.year,
+                      from.month,
+                      from.day + days - 1,
+                    );
+                    selectedDay = from;
+                  }),
+                ),
+              ActionChip(
+                avatar: const Icon(Icons.date_range, size: 18),
+                label: const Text('Choose dates'),
+                onPressed: chooseRange,
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Text(
+            '${longDate(from)} → ${longDate(until)}',
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${sessions.fold<int>(0, (n, s) => n + s.weight)} scheduled classes in this period',
+            style: TextStyle(color: tone(context, muted)),
+          ),
+          const Divider(height: 32),
+          Text('Start with', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 12),
+          SegmentedButton<Baseline>(
+            segments: const [
+              ButtonSegment(value: Baseline.official, label: Text('IMS only')),
+              ButtonSegment(
+                value: Baseline.personal,
+                label: Text('IMS + my logs'),
+              ),
+            ],
+            selected: {baseline},
+            onSelectionChanged: (v) => setState(() => baseline = v.first),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            baseline == Baseline.official
+                ? 'Uses the attendance currently uploaded to IMS.'
+                : 'Adds your logs only for days IMS hasn’t recorded yet. Each class counts once.',
+            style: TextStyle(color: tone(context, muted), fontSize: 13),
+          ),
+        ],
+      ),
+    ),
+    const SizedBox(height: 14),
+    if (data.subjects.isEmpty)
+      const Empty(
+        'Fetch your attendance first',
+        'Your subjects are needed to calculate a leave plan.',
+      ),
+    if (data.timetable.isEmpty)
+      Surface(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Set up your timetable first',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Your timetable tells us which subjects you would miss on a day off.',
+            ),
+            TextButton.icon(
+              onPressed: () => openTimetable(context, widget.controller),
+              icon: const Icon(Icons.calendar_view_week),
+              label: const Text('Set up timetable'),
+            ),
+          ],
+        ),
+      ),
+    if (data.timetable.isNotEmpty)
+      TextButton.icon(
+        onPressed: () => openTimetable(context, widget.controller),
+        icon: const Icon(Icons.edit_calendar_outlined),
+        label: const Text('Check or edit timetable'),
+      ),
+    if (stale)
+      const Text(
+        'This saved plan includes past dates. Choose new dates to calculate a future plan.',
+      ),
+    if (data.scenarios.isNotEmpty)
+      ExpansionTile(
+        title: const Text('Saved plans'),
+        subtitle: const Text(
+          'Open a plan to adjust it with your latest attendance.',
+        ),
+        children: [
+          for (final saved in data.scenarios)
+            ListTile(
+              title: Text(saved.name),
+              subtitle: Text(
+                '${shortDate(saved.from)} – ${shortDate(saved.until)}',
+              ),
+              onTap: () => load(saved),
+              trailing: IconButton(
+                tooltip: 'Delete ${saved.name}',
+                icon: const Icon(Icons.delete_outline),
+                onPressed: () => safely(
+                  context,
+                  () => widget.controller.deleteScenario(saved.id),
+                ),
+              ),
+            ),
+        ],
+      ),
+  ];
+
+  List<Widget> _classes(
+    AppData data,
+    Scenario scenario,
+    List<Session> sessions,
+  ) {
+    final days = [
+      for (
+        var d = from;
+        !d.isAfter(until);
+        d = DateTime(d.year, d.month, d.day + 1)
+      )
+        d,
+    ];
+    final day =
+        selectedDay != null &&
+            !selectedDay!.isBefore(from) &&
+            !selectedDay!.isAfter(until)
+        ? selectedDay!
+        : from;
+    final todaySessions = sessions
+        .where((s) => dateKey(s.starts) == dateKey(day))
+        .toList();
+    final choices = todaySessions
+        .expand((s) => sessionActions(scenario, s))
+        .toList();
+    final off =
+        choices.isNotEmpty &&
+        choices.every((a) => a == PlanAction.miss || a == PlanAction.cancel) &&
+        choices.contains(PlanAction.miss);
+    final holiday =
+        choices.isNotEmpty && choices.every((a) => a == PlanAction.cancel);
+    void markDay(PlanAction action) => setState(() {
+      for (final s in todaySessions) {
+        setSessionAction(actions, s, action);
+      }
+    });
+    return [
+      Text(
+        'Mark what you’ll miss',
+        style: Theme.of(context).textTheme.titleLarge,
+      ),
+      const SizedBox(height: 8),
+      const Text(
+        'Everything starts as Attend. Pick a day off, or change individual classes. Other classes in this period are assumed attended.',
+      ),
+      const SizedBox(height: 16),
+      SizedBox(
+        height: 80,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: days.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 8),
+          itemBuilder: (context, i) {
+            final d = days[i];
+            final values = sessions
+                .where((s) => dateKey(s.starts) == dateKey(d))
+                .expand((s) => sessionActions(scenario, s));
+            final missed = values.where((a) => a == PlanAction.miss).length;
+            return ChoiceChip(
+              label: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('${DateFormat('EEE').format(d)} · ${shortDate(d)}'),
+                  const SizedBox(height: 3),
+                  Text(
+                    missed > 0
+                        ? '$missed missed'
+                        : values.isEmpty
+                        ? 'No classes'
+                        : 'Attend',
+                    style: const TextStyle(fontSize: 11),
                   ),
+                ],
+              ),
+              selected: dateKey(day) == dateKey(d),
+              onSelected: (_) => setState(() => selectedDay = d),
+            );
+          },
+        ),
+      ),
+      const SizedBox(height: 14),
+      Surface(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(longDate(day), style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 12),
+            if (todaySessions.isNotEmpty)
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  FilterChip(
+                    label: const Text('Day off'),
+                    selected: off,
+                    onSelected: (v) => setState(() {
+                      for (final s in todaySessions) {
+                        final previous = sessionActions(scenario, s);
+                        for (var i = 0; i < previous.length; i++) {
+                          if (previous[i] != PlanAction.cancel) {
+                            actions[planClassKey(s, i)] = v
+                                ? PlanAction.miss
+                                : PlanAction.attend;
+                          }
+                        }
+                      }
+                    }),
+                  ),
+                  FilterChip(
+                    label: const Text('Holiday / no classes'),
+                    selected: holiday,
+                    onSelected: (v) =>
+                        markDay(v ? PlanAction.cancel : PlanAction.attend),
+                  ),
+                  TextButton(
+                    onPressed: () => markDay(PlanAction.attend),
+                    child: const Text('Reset day'),
+                  ),
+                ],
+              ),
+            if (todaySessions.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 24),
+                child: Text('No classes in your saved timetable for this day.'),
+              ),
+            for (final s in todaySessions) _session(data, scenario, s),
+          ],
+        ),
+      ),
+      const SizedBox(height: 14),
+      TextButton.icon(
+        onPressed: () => addExtra(context, data),
+        icon: const Icon(Icons.add),
+        label: const Text('Add an expected extra class'),
+      ),
+      TextButton.icon(
+        onPressed: () => openTimetable(context, widget.controller),
+        icon: const Icon(Icons.edit_calendar_outlined),
+        label: const Text('Edit timetable'),
+      ),
+    ];
+  }
+
+  Widget _session(AppData data, Scenario scenario, Session session) {
+    final choices = sessionActions(scenario, session);
+    final extra = extras.any((e) => e.id == session.id);
+    return Padding(
+      padding: const EdgeInsets.only(top: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Divider(),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  data.subjectLabel(session.subject),
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+              if (extra)
+                IconButton(
+                  tooltip: 'Remove extra class',
+                  icon: const Icon(Icons.delete_outline),
+                  onPressed: () => setState(() {
+                    extras.removeWhere((e) => e.id == session.id);
+                    setSessionAction(actions, session, PlanAction.attend);
+                  }),
                 ),
             ],
           ),
-          SizedBox(height: 6),
           Text(
-            'Saved plans update when your attendance changes.',
-            style: TextStyle(fontSize: 11, color: tone(context, muted)),
+            '${TimeOfDay.fromDateTime(session.starts).format(context)} · ${session.weight} ${session.weight == 1 ? 'class' : 'classes'}${extra ? ' · Extra' : ''}',
+            style: TextStyle(color: tone(context, muted), fontSize: 12),
           ),
-        ],
-        SizedBox(height: 28),
-        Text(
-          isMaterialDesign(context) ? 'Your schedule' : '02  Shape your week',
-          style: Theme.of(context).textTheme.headlineSmall,
-        ),
-        SizedBox(height: 8),
-        Text(
-          'Miss a whole day or change individual classes. Cancelled classes do not affect attendance.',
-          style: TextStyle(
-            color: tone(context, muted),
-            fontSize: 12,
-            height: 1.5,
-          ),
-        ),
-        SizedBox(height: 16),
-        if (sessions.isEmpty)
-          Empty(
-            'Add your timetable to start planning',
-            'Add your weekly classes to plan future dates.',
-          ),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: TextButton.icon(
-            onPressed: () => openTimetable(context, widget.controller),
-            icon: const Icon(Icons.calendar_view_week_outlined),
-            label: const Text('Edit weekly timetable'),
-          ),
-        ),
-        for (final date in dates)
-          Padding(
-            padding: EdgeInsets.only(bottom: 12),
-            child: Surface(
-              padding: EdgeInsets.all(16),
+          for (var i = 0; i < choices.length; i++)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  if (choices.length > 1)
+                    Text(
+                      'Class ${i + 1}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
                   Wrap(
-                    spacing: 12,
-                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 6,
+                    runSpacing: 4,
                     children: [
-                      Text(
-                        longDate(DateTime.parse(date)),
-                        style: TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      TextButton(
-                        onPressed: () => setState(() {
-                          for (final s in sessions.where(
-                            (s) => dateKey(s.starts) == date,
-                          )) {
-                            if (actions[s.id] != PlanAction.cancel) {
-                              actions[s.id] = PlanAction.miss;
-                            }
-                          }
-                        }),
-                        child: Text('Take day off'),
-                      ),
-                      TextButton(
-                        onPressed: () => setState(() {
-                          for (final s in sessions.where(
-                            (s) => dateKey(s.starts) == date,
-                          )) {
-                            actions[s.id] = PlanAction.cancel;
-                          }
-                        }),
-                        child: Text('Holiday'),
-                      ),
+                      for (final action in PlanAction.values)
+                        ChoiceChip(
+                          label: Text(switch (action) {
+                            PlanAction.attend => 'Attend',
+                            PlanAction.miss => 'Miss',
+                            PlanAction.cancel => 'Not held',
+                          }),
+                          key: ValueKey('plan-${session.id}-$i-${action.name}'),
+                          selected: choices[i] == action,
+                          onSelected: (_) => setState(
+                            () => actions[planClassKey(session, i)] = action,
+                          ),
+                        ),
                     ],
                   ),
-                  for (final s in sessions.where(
-                    (s) => dateKey(s.starts) == date,
-                  ))
-                    Padding(
-                      padding: EdgeInsets.only(top: 12),
-                      child: LayoutBuilder(
-                        builder: (context, c) {
-                          final details = Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                data.subjectLabel(s.subject),
-                                style: TextStyle(
-                                  fontWeight: FontWeight.w700,
-                                  fontSize: 13,
-                                ),
-                              ),
-                              Text(
-                                '${TimeOfDay.fromDateTime(s.starts).format(context)}${s.weight > 1 ? ' · ${s.weight} classes' : ''}${extras.any((e) => e.id == s.id) ? ' · hypothetical' : ''}',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  color: tone(context, muted),
-                                ),
-                              ),
-                            ],
-                          );
-                          final choices = Wrap(
-                            spacing: 5,
-                            children: [
-                              for (final action in PlanAction.values)
-                                ChoiceChip(
-                                  visualDensity: VisualDensity.compact,
-                                  label: Text(switch (action) {
-                                    PlanAction.attend => 'Attend',
-                                    PlanAction.miss => 'Miss',
-                                    PlanAction.cancel => 'Cancel',
-                                  }, style: TextStyle(fontSize: 11)),
-                                  selected:
-                                      (actions[s.id] ?? PlanAction.attend) ==
-                                      action,
-                                  onSelected: (_) =>
-                                      setState(() => actions[s.id] = action),
-                                ),
-                            ],
-                          );
-                          return c.maxWidth < 420
-                              ? Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    details,
-                                    SizedBox(height: 6),
-                                    choices,
-                                  ],
-                                )
-                              : Row(
-                                  children: [
-                                    Expanded(child: details),
-                                    choices,
-                                  ],
-                                );
-                        },
-                      ),
-                    ),
                 ],
               ),
             ),
-          ),
-        SizedBox(height: 18),
-        Text(
-          isMaterialDesign(context)
-              ? 'Projected attendance'
-              : '03  See the impact',
-          style: Theme.of(context).textTheme.headlineSmall,
-        ),
-        SizedBox(height: 8),
-        Text(
-          'You need 75% in every subject. Reaching 75% later does not change an earlier day when you were below it.',
-          style: TextStyle(color: tone(context, muted), fontSize: 12),
-        ),
-        SizedBox(height: 16),
-        if (!stale)
-          for (final result in results)
-            Padding(
-              padding: EdgeInsets.only(bottom: 12),
-              child: ProjectionCard(
-                result,
-                recovery: recoveryDate(data, scenario, result),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _results(
+    AppData data,
+    Scenario scenario,
+    List<Session> sessions,
+  ) {
+    final results = project(data, scenario);
+    final choices = sessions
+        .expand((s) => sessionActions(scenario, s))
+        .toList();
+    final missed = choices.where((a) => a == PlanAction.miss).length;
+    final attended = choices.where((a) => a == PlanAction.attend).length;
+    final cancelled = choices.where((a) => a == PlanAction.cancel).length;
+    final below = results
+        .where((r) => r.end.held > 0 && !r.end.eligible(target))
+        .length;
+    final dips = results.any((r) => r.dipsBelow && r.end.eligible(target));
+    final missing = data.subjects.where(
+      (s) => s.official.held > 0 && !sessions.any((x) => x.subject == s.code),
+    );
+    final uncovered =
+        [
+              for (
+                var d = from;
+                !d.isAfter(until);
+                d = DateTime(d.year, d.month, d.day + 1)
+              )
+                d,
+            ]
+            .where(
+              (d) =>
+                  d.weekday <= 5 &&
+                  !data.timetable.any(
+                    (r) =>
+                        !d.isBefore(dayOnly(r.from)) &&
+                        !d.isAfter(dayOnly(r.until)),
+                  ),
+            )
+            .length;
+    return [
+      Surface(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Here’s how your plan looks',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '${shortDate(from)} – ${shortDate(until)} · ${baseline == Baseline.official ? 'IMS only' : 'IMS + my logs'}',
+            ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                Tag('$attended attend'),
+                Tag('$missed miss', color: missed > 0 ? amber : green),
+                Tag('$cancelled not held', color: muted),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Text(
+              results.every((r) => r.end.held == 0)
+                  ? 'No attendance available to calculate a percentage.'
+                  : below > 0
+                  ? '$below ${below == 1 ? 'subject ends' : 'subjects end'} below $target%.'
+                  : 'Every subject with attendance ends at or above $target%.',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: tone(context, below > 0 ? amber : green),
               ),
             ),
-        if (stale)
-          Empty(
-            'Choose new dates',
-            'Some planned classes are now in the past and may already be in your attendance. Choose future dates to try this plan.',
+            if (dips)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'Some subjects fall below the target before recovering. Check their details below.',
+                ),
+              ),
+            const SizedBox(height: 10),
+            const Text(
+              'These are estimates from your saved timetable. Each subject is checked separately.',
+              style: TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+      if (uncovered > 0)
+        Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Text(
+            '$uncovered weekdays are outside your saved timetable’s date range. Classes on those dates are not included.',
+            style: TextStyle(color: tone(context, amber)),
           ),
-        SizedBox(height: 30),
-      ],
-    );
+        ),
+      if (missing.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Text(
+            'No classes found in this period for ${missing.map((s) => s.label).join(', ')}. Their percentages stay unchanged.',
+            style: TextStyle(color: tone(context, muted), fontSize: 12),
+          ),
+        ),
+      const SizedBox(height: 18),
+      for (final result in results)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: ProjectionCard(result),
+        ),
+      ExpansionTile(
+        title: const Text('More options'),
+        subtitle: const Text(
+          'Different target, leave suggestions, and comparisons',
+        ),
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: AppDropdown<int>(
+              value: target,
+              items: [
+                for (final p in [75, 80, 85, 90, 95])
+                  DropdownMenuItem(value: p, child: Text('Target: $p%')),
+              ],
+              onChanged: (v) => setState(() => target = v!),
+            ),
+          ),
+          ListTile(
+            leading: const Icon(Icons.travel_explore),
+            title: const Text('Find possible days off'),
+            onTap: sessions.isEmpty
+                ? null
+                : () => findDays(context, data, scenario),
+          ),
+          if (data.scenarios.isNotEmpty)
+            ListTile(
+              leading: const Icon(Icons.compare_arrows),
+              title: const Text('Compare with a saved plan'),
+              onTap: () => comparePlans(context, data, scenario),
+            ),
+          ListTile(
+            leading: const Icon(Icons.restart_alt),
+            title: const Text('Start a new plan'),
+            onTap: reset,
+          ),
+        ],
+      ),
+    ];
   }
 
   Future<void> comparePlans(
@@ -587,6 +857,26 @@ class _PlannerScreenState extends State<PlannerScreen> {
                       color: tone(context, green),
                     ),
                     title: Text(longDate(day)),
+                    trailing: const Icon(Icons.arrow_forward),
+                    onTap: () {
+                      final sessions = plannedSessions(
+                        data,
+                        scenario,
+                      ).where((s) => dateKey(s.starts) == dateKey(day));
+                      setState(() {
+                        for (final s in sessions) {
+                          final choices = sessionActions(scenario, s);
+                          for (var i = 0; i < choices.length; i++) {
+                            if (choices[i] != PlanAction.cancel) {
+                              actions[planClassKey(s, i)] = PlanAction.miss;
+                            }
+                          }
+                        }
+                        selectedDay = day;
+                      });
+                      Navigator.pop(context);
+                      go(1);
+                    },
                   ),
               ],
             ),
@@ -604,49 +894,80 @@ class _PlannerScreenState extends State<PlannerScreen> {
 
   Future<void> addExtra(BuildContext context, AppData data) async {
     String code = data.subjects.first.code;
-    DateTime date = from;
+    DateTime date =
+        selectedDay != null &&
+            !selectedDay!.isBefore(from) &&
+            !selectedDay!.isAfter(until)
+        ? selectedDay!
+        : from;
+    var time = const TimeOfDay(hour: 17, minute: 0);
+    int count = 1;
     final result = await showDialog<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, set) => AlertDialog(
-          title: Text('Hypothetical extra class'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                'Only a real, countable university class could improve official attendance.',
-                style: TextStyle(color: tone(context, muted), fontSize: 12),
-              ),
-              AppDropdown<String>(
-                itemHeight: 64,
-                value: code,
-                isExpanded: true,
-                items: [
-                  for (final s in data.subjects)
-                    DropdownMenuItem(
-                      value: s.code,
-                      child: Text(
-                        s.label,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
+          title: Text('Expected extra class'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Add a class you expect to happen. This changes only your plan.',
+                  style: TextStyle(color: tone(context, muted), fontSize: 12),
+                ),
+                AppDropdown<String>(
+                  itemHeight: 64,
+                  value: code,
+                  isExpanded: true,
+                  items: [
+                    for (final s in data.subjects)
+                      DropdownMenuItem(
+                        value: s.code,
+                        child: Text(
+                          s.label,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
-                    ),
-                ],
-                onChanged: (v) => set(() => code = v!),
-              ),
-              TextButton(
-                onPressed: () async {
-                  final value = await showDatePicker(
-                    context: context,
-                    initialDate: date,
-                    firstDate: from,
-                    lastDate: until,
-                  );
-                  if (value != null) set(() => date = value);
-                },
-                child: Text(shortDate(date)),
-              ),
-            ],
+                  ],
+                  onChanged: (v) => set(() => code = v!),
+                ),
+                TextButton(
+                  onPressed: () async {
+                    final value = await showDatePicker(
+                      context: context,
+                      initialDate: date,
+                      firstDate: from,
+                      lastDate: until,
+                    );
+                    if (value != null) set(() => date = value);
+                  },
+                  child: Text(shortDate(date)),
+                ),
+                TextButton.icon(
+                  onPressed: () async {
+                    final picked = await showTimePicker(
+                      context: context,
+                      initialTime: time,
+                    );
+                    if (picked != null) set(() => time = picked);
+                  },
+                  icon: const Icon(Icons.schedule),
+                  label: Text(time.format(context)),
+                ),
+                AppDropdown<int>(
+                  value: count,
+                  items: [
+                    for (var n = 1; n <= 8; n++)
+                      DropdownMenuItem(
+                        value: n,
+                        child: Text('$n ${n == 1 ? 'class' : 'classes'}'),
+                      ),
+                  ],
+                  onChanged: (v) => set(() => count = v!),
+                ),
+              ],
+            ),
           ),
           actions: [
             TextButton(
@@ -661,13 +982,21 @@ class _PlannerScreenState extends State<PlannerScreen> {
         ),
       ),
     );
-    if (result == true) {
+    if (result == true && mounted) {
+      selectedDay = date;
       setState(
         () => extras.add(
           Session(
             id: 'hypothetical-${DateTime.now().microsecondsSinceEpoch}',
             subject: code,
-            starts: DateTime(date.year, date.month, date.day, 17),
+            starts: DateTime(
+              date.year,
+              date.month,
+              date.day,
+              time.hour,
+              time.minute,
+            ),
+            weight: count,
           ),
         ),
       );
@@ -681,136 +1010,127 @@ class ProjectionCard extends StatelessWidget {
   const ProjectionCard(this.result, {super.key, this.recovery});
   @override
   Widget build(BuildContext context) {
-    final end = result.end, good = end.eligible(result.target);
+    final end = result.end;
+    final good = end.held > 0 && end.eligible(result.target);
+    final color = tone(
+      context,
+      end.held == 0
+          ? muted
+          : good
+          ? green
+          : amber,
+    );
     return Surface(
-      padding: EdgeInsets.all(18),
+      padding: const EdgeInsets.all(18),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  result.subject.name,
-                  style: TextStyle(fontWeight: FontWeight.w700),
-                ),
-              ),
-              Tag(
-                end.held == 0
-                    ? 'NO BASELINE'
-                    : good
-                    ? 'AT TARGET'
-                    : 'BELOW TARGET',
-                color: end.held == 0
-                    ? tone(context, muted)
-                    : good
-                    ? tone(context, green)
-                    : tone(context, amber),
-              ),
-            ],
-          ),
-          SizedBox(height: 16),
-          Row(
-            children: [
-              Text(
-                percentage(result.start),
-                style: TextStyle(fontSize: 21, color: tone(context, muted)),
-              ),
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: 14),
-                child: Icon(
-                  Icons.arrow_forward_rounded,
-                  size: 19,
-                  color: tone(context, muted),
-                ),
-              ),
-              Text(
-                percentage(end),
-                style: TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w800,
-                  color: good ? tone(context, green) : tone(context, amber),
-                ),
-              ),
-              Spacer(),
-              Text(
-                '${end.attended}/${end.held}',
-                style: TextStyle(fontSize: 13, color: tone(context, muted)),
-              ),
-            ],
-          ),
-          SizedBox(height: 10),
           Text(
-            result.dipsBelow
-                ? 'Dips below ${result.target}% during this plan. Lowest: ${result.lowest?.toStringAsFixed(1)}%.'
-                : 'Stays at or above ${result.target}% across this plan.',
-            style: TextStyle(
-              color: result.dipsBelow
-                  ? tone(context, amber)
-                  : tone(context, green),
-              fontSize: 12,
-            ),
+            result.subject.label,
+            style: const TextStyle(fontWeight: FontWeight.w700),
           ),
-          if (!good && end.held > 0)
-            Padding(
-              padding: EdgeInsets.only(top: 6),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 20,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Now',
+                    style: TextStyle(fontSize: 12, color: tone(context, muted)),
+                  ),
+                  Text(
+                    percentage(result.start),
+                    style: const TextStyle(fontSize: 24),
+                  ),
+                ],
+              ),
+              const Icon(Icons.arrow_forward_rounded, size: 20),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'After plan',
+                    style: TextStyle(fontSize: 12, color: tone(context, muted)),
+                  ),
+                  Text(
+                    percentage(end),
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.w800,
+                      color: color,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '${end.attended} attended / ${end.held} held after this plan',
+            style: TextStyle(color: tone(context, muted), fontSize: 12),
+          ),
+          const SizedBox(height: 12),
+          if (end.held == 0)
+            const Text(
+              'No recorded or planned classes to calculate a percentage.',
+            )
+          else if (!good)
+            Text(
+              'Attend ${end.recover(result.target)} more consecutive classes to reach ${result.target}%.',
+              style: TextStyle(color: color, fontWeight: FontWeight.w600),
+            )
+          else
+            Text(
+              'You could miss ${end.canMiss(result.target)} more ${end.canMiss(result.target) == 1 ? 'class' : 'classes'} and stay at ${result.target}% or above.',
+              style: TextStyle(color: color, fontWeight: FontWeight.w600),
+            ),
+          if (result.steps.isEmpty)
+            const Padding(
+              padding: EdgeInsets.only(top: 8),
               child: Text(
-                'After this plan: attend ${end.recover(result.target)} more consecutive classes to reach ${result.target}%.',
-                style: TextStyle(color: tone(context, muted), fontSize: 12),
+                'No classes for this subject in the selected period.',
               ),
             ),
-          if (!good && end.held > 0)
+          if (result.dipsBelow && end.held > 0)
             Padding(
-              padding: EdgeInsets.only(top: 6),
+              padding: const EdgeInsets.only(top: 8),
               child: Text(
-                recovery == null
-                    ? 'Recovery is not possible within the known remaining timetable (checked up to one year).'
-                    : 'Earliest recovery: ${longDate(recovery!)} if every remaining scheduled class is held and attended.',
-                style: TextStyle(
-                  color: tone(context, muted),
-                  fontSize: 12,
-                  height: 1.5,
-                ),
-              ),
-            ),
-          if (result.start.held == 0)
-            Padding(
-              padding: EdgeInsets.only(top: 6),
-              child: Text(
-                'No starting records. This projection covers future sessions only.',
+                result.start.held > 0 && !result.start.eligible(result.target)
+                    ? 'Starts below ${result.target}%. ${good ? 'Recovers by the end of the plan.' : 'Still below at the end.'}'
+                    : 'Falls below ${result.target}% during the plan, even if it recovers later.',
                 style: TextStyle(color: tone(context, amber), fontSize: 12),
               ),
             ),
           if (result.steps.isNotEmpty)
             ExpansionTile(
               tilePadding: EdgeInsets.zero,
-              childrenPadding: EdgeInsets.zero,
-              title: Text(
-                'Show ${result.steps.length} planned sessions',
-                style: TextStyle(fontSize: 12, color: tone(context, muted)),
+              title: const Text(
+                'Class-by-class breakdown',
+                style: TextStyle(fontSize: 13),
               ),
               children: [
                 for (final step in result.steps)
-                  Padding(
-                    padding: EdgeInsets.symmetric(vertical: 6),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '${shortDate(step.session.starts)} · ${step.action.name}',
-                            style: TextStyle(fontSize: 12),
-                          ),
-                        ),
-                        Text(
-                          '${step.counts.attended}/${step.counts.held} · ${percentage(step.counts)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: step.counts.eligible(result.target)
-                                ? tone(context, green)
-                                : tone(context, amber),
-                          ),
-                        ),
-                      ],
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(
+                      '${shortDate(step.session.starts)} · ${TimeOfDay.fromDateTime(step.session.starts).format(context)}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    subtitle: Text(
+                      '${switch (step.action) {
+                        PlanAction.attend => 'Attend',
+                        PlanAction.miss => 'Miss',
+                        PlanAction.cancel => 'Not held',
+                      }}${step.session.weight > 1 ? ' · ${step.session.weight} classes' : ''}${step.session.note.isEmpty ? '' : ' · ${step.session.note}'}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    trailing: Text(
+                      '${step.counts.attended}/${step.counts.held} · ${percentage(step.counts)}',
+                      style: const TextStyle(fontSize: 12),
                     ),
                   ),
               ],
