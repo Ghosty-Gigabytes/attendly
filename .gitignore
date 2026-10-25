@@ -13,3 +13,13 @@
 
 /outputs/create-history.ps1
 /outputs/commit-plan.json
+
+# Web/backend local runtime and build output.
+/server/.local/
+/server/target/
+/server/src/main/resources/static/
+**/.env
+/.env
+
+/outputs/*.jar
+/.local/
