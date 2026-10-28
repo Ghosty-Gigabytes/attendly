@@ -4,7 +4,6 @@ import '../data/controller.dart';
 import '../domain/models.dart';
 import 'shared.dart';
 import 'motion.dart';
-import 'bauhaus_theme.dart';
 import 'calendar.dart';
 import 'material_cards.dart';
 
@@ -15,8 +14,6 @@ class Dashboard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final data = controller.data;
-    final scheme = Theme.of(context).colorScheme;
-    final bauhaus = Theme.of(context).extension<BauhausPalette>() != null;
     final atRisk = data.subjects
         .where((s) => s.official.held > 0 && !s.official.eligible())
         .length;
@@ -35,84 +32,7 @@ class Dashboard extends StatelessWidget {
                 : 'A little clarity. More freedom.',
             data.semester.isEmpty ? 'Connected to IMS' : data.semester,
           ),
-          if (isMaterialDesign(context))
-            MaterialOverviewSummary(atRisk: atRisk, onPlan: onPlan)
-          else
-            Container(
-              padding: EdgeInsets.all(26),
-              decoration: BoxDecoration(
-                color: bauhaus
-                    ? scheme.primaryContainer
-                    : Theme.of(context).brightness == Brightness.dark
-                    ? Color(0xFF181A1D)
-                    : ink,
-                borderRadius: BorderRadius.circular(bauhaus ? 0 : 26),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.wb_sunny_outlined,
-                        color: bauhaus
-                            ? scheme.onPrimaryContainer
-                            : Color(0xFFD5E8AE),
-                        size: 20,
-                      ),
-                      SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          'YOUR OFFICIAL ATTENDANCE',
-                          style: TextStyle(
-                            color: bauhaus
-                                ? scheme.onPrimaryContainer
-                                : Color(0xFFD5E8AE),
-                            fontSize: 10,
-                            letterSpacing: 1.4,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 18),
-                  Text(
-                    atRisk == 0
-                        ? 'Stay on track. Plan ahead.'
-                        : '$atRisk ${atRisk == 1 ? 'subject needs' : 'subjects need'} a little attention.',
-                    style: TextStyle(
-                      color: bauhaus ? scheme.onPrimaryContainer : Colors.white,
-                      fontSize: 25,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -.5,
-                    ),
-                  ),
-                  SizedBox(height: 10),
-                  Text(
-                    'Check your buffer before taking a break.',
-                    style: TextStyle(
-                      color: bauhaus
-                          ? scheme.onPrimaryContainer
-                          : Color(0xFFB9CEC6),
-                      height: 1.6,
-                    ),
-                  ),
-                  SizedBox(height: 20),
-                  FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: bauhaus
-                          ? scheme.primary
-                          : Color(0xFFD5E8AE),
-                      foregroundColor: bauhaus ? scheme.onPrimary : ink,
-                    ),
-                    onPressed: onPlan,
-                    icon: Icon(Icons.arrow_outward_rounded, size: 18),
-                    label: Text('Experiment with a leave'),
-                  ),
-                ],
-              ),
-            ),
+          MaterialOverviewSummary(atRisk: atRisk, onPlan: onPlan),
           SizedBox(height: 26),
           if (controller.error != null)
             Padding(
@@ -207,7 +127,11 @@ class Dashboard extends StatelessWidget {
             ),
           LayoutBuilder(
             builder: (context, c) {
-              final columns = c.maxWidth >= 760 ? 2 : 1;
+              final columns = c.maxWidth >= 1120
+                  ? 3
+                  : c.maxWidth >= 700
+                  ? 2
+                  : 1;
               return Wrap(
                 spacing: 16,
                 runSpacing: 16,
@@ -260,158 +184,8 @@ class SubjectCard extends StatelessWidget {
   final VoidCallback onTap;
   const SubjectCard(this.subject, this.data, {super.key, required this.onTap});
   @override
-  Widget build(BuildContext context) {
-    if (isMaterialDesign(context)) {
-      return MaterialSubjectCard(subject: subject, data: data, onTap: onTap);
-    }
-    final c = subject.official,
-        color = Color(subject.color),
-        safe = c.eligible(),
-        personal = data.personal(subject.code);
-    return InkWell(
-      borderRadius: BorderRadius.circular(24),
-      onTap: onTap,
-      child: Surface(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: color.withValues(alpha: .12),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(Icons.menu_book_rounded, color: color, size: 20),
-                ),
-                SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    subject.code,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 1,
-                      color: tone(context, muted),
-                    ),
-                  ),
-                ),
-                Tag(
-                  c.held == 0
-                      ? 'NO RECORDS'
-                      : safe
-                      ? 'ON TRACK'
-                      : 'BELOW 75%',
-                  color: c.held == 0
-                      ? tone(context, muted)
-                      : safe
-                      ? tone(context, green)
-                      : tone(context, amber),
-                ),
-              ],
-            ),
-            SizedBox(height: 16),
-            Text(
-              subject.name,
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-            ),
-            SizedBox(height: 16),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Text(
-                  percentage(c),
-                  style: TextStyle(
-                    fontSize: 35,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: -1.6,
-                    color: tone(context, ink),
-                  ),
-                ),
-                Spacer(),
-                Padding(
-                  padding: EdgeInsets.only(bottom: 7),
-                  child: Text(
-                    '${c.attended} / ${c.held} classes',
-                    style: TextStyle(color: tone(context, muted), fontSize: 12),
-                  ),
-                ),
-              ],
-            ),
-            SizedBox(height: 12),
-            LayoutBuilder(
-              builder: (context, box) => Stack(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: SmoothAttendanceBar(
-                      value: (c.percent ?? 0) / 100,
-                      minHeight: 7,
-                      color: safe ? tone(context, green) : tone(context, amber),
-                      backgroundColor: tone(context, paper),
-                    ),
-                  ),
-                  Positioned(
-                    left: box.maxWidth * .75,
-                    child: Container(
-                      width: 2,
-                      height: 7,
-                      color: tone(context, ink),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            SizedBox(height: 13),
-            Text(
-              c.held == 0
-                  ? 'Waiting for attendance'
-                  : safe
-                  ? 'Can miss ${c.canMiss()} next ${c.canMiss() == 1 ? 'class' : 'classes'} at 75%'
-                  : 'Attend ${c.recover()} consecutive classes to reach 75%',
-              style: TextStyle(
-                color: safe ? tone(context, green) : tone(context, amber),
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            if (data.showPersonal) ...[
-              Padding(
-                padding: EdgeInsets.symmetric(vertical: 14),
-                child: Divider(height: 1, color: tone(context, line)),
-              ),
-              Row(
-                children: [
-                  Icon(
-                    Icons.edit_note_rounded,
-                    color: tone(context, muted),
-                    size: 19,
-                  ),
-                  SizedBox(width: 8),
-                  Text(
-                    'With personal',
-                    style: TextStyle(color: tone(context, muted), fontSize: 12),
-                  ),
-                  Spacer(),
-                  Text(
-                    '${percentage(personal)}  ·  ${personal.attended}/${personal.held}',
-                    style: TextStyle(fontWeight: FontWeight.w700, fontSize: 13),
-                  ),
-                ],
-              ),
-              SizedBox(height: 6),
-              Text(
-                'Includes your logs until IMS updates those days',
-                style: TextStyle(fontSize: 10, color: tone(context, muted)),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
+  Widget build(BuildContext context) =>
+      MaterialSubjectCard(subject: subject, data: data, onTap: onTap);
 }
 
 void showSubject(
@@ -419,6 +193,42 @@ void showSubject(
   Subject subject,
   AppController controller,
 ) {
+  if (MediaQuery.sizeOf(context).width >= 960) {
+    showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        clipBehavior: Clip.antiAlias,
+        child: SizedBox(
+          key: const Key('desktop-subject-panel'),
+          width: 1000,
+          height: MediaQuery.sizeOf(context).height * .86,
+          child: Scaffold(
+            appBar: AppBar(
+              automaticallyImplyLeading: false,
+              title: Text(
+                subject.label,
+                maxLines: 2,
+                style: const TextStyle(fontSize: 16),
+              ),
+              actions: [
+                IconButton(
+                  tooltip: 'Close subject attendance',
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            body: ListenableBuilder(
+              listenable: controller,
+              builder: (context, _) =>
+                  CalendarScreen(controller, initialSubject: subject.code),
+            ),
+          ),
+        ),
+      ),
+    );
+    return;
+  }
   Navigator.of(context).push(
     PageRouteBuilder<void>(
       transitionDuration: motionDuration(context, 300),

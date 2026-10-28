@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../data/controller.dart';
 import '../data/api.dart';
 import 'shared.dart';
@@ -8,6 +9,7 @@ import 'calendar.dart';
 import 'timetable_screen.dart';
 import 'planner_screen.dart';
 import 'motion.dart';
+import 'id_card.dart';
 
 class WebShell extends StatefulWidget {
   final AppController controller;
@@ -18,6 +20,7 @@ class WebShell extends StatefulWidget {
 
 class _WebShellState extends State<WebShell> {
   int page = 0;
+  bool loggingOut = false;
   AppController get c => widget.controller;
   static const labels = [
     'Overview',
@@ -33,185 +36,437 @@ class _WebShellState extends State<WebShell> {
     Icons.auto_awesome_outlined,
     Icons.tune_rounded,
   ];
+  Future<void> logout() async {
+    if (loggingOut) return;
+    if (c.pending.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'You have ${c.pending.length} unsynced changes. Sync them before logging out so they are not lost.',
+          ),
+          action: SnackBarAction(
+            label: 'Sync now',
+            onPressed: () => c.synchronize(),
+          ),
+        ),
+      );
+      return;
+    }
+    setState(() => loggingOut = true);
+    try {
+      await c.signOut();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(Api.message(e))));
+      }
+    } finally {
+      if (mounted) setState(() => loggingOut = false);
+    }
+  }
+
+  void openIdCard() => Navigator.of(
+    context,
+  ).push(MaterialPageRoute<void>(builder: (_) => IdCardScreen(controller: c)));
+
   @override
   Widget build(BuildContext context) {
     if (c.user == null) return AuthPage(c);
     final wide = MediaQuery.sizeOf(context).width >= 960;
     final scheme = Theme.of(context).colorScheme;
-    return Scaffold(
-      appBar: wide
-          ? null
-          : AppBar(
-              title: const Brand(),
-              actions: [
-                IconButton(
-                  tooltip: 'Refresh attendance',
-                  onPressed: c.refreshing ? null : c.sync,
-                  icon: const Icon(Icons.refresh),
-                ),
-              ],
-            ),
-      body: SafeArea(
-        child: Row(
-          children: [
-            if (wide)
-              Container(
-                width: 238,
-                color: scheme.surfaceContainerLow,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Padding(
-                      padding: EdgeInsets.fromLTRB(24, 28, 24, 24),
-                      child: Brand(),
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyI, alt: true): openIdCard,
+        for (var i = 0; i < labels.length; i++)
+          SingleActivator(
+            [
+              LogicalKeyboardKey.digit1,
+              LogicalKeyboardKey.digit2,
+              LogicalKeyboardKey.digit3,
+              LogicalKeyboardKey.digit4,
+              LogicalKeyboardKey.digit5,
+            ][i],
+            alt: true,
+          ): () =>
+              setState(() => page = i),
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          appBar: wide
+              ? null
+              : AppBar(
+                  title: const Brand(),
+                  actions: [
+                    IconButton(
+                      tooltip: 'Refresh attendance',
+                      onPressed: c.refreshing ? null : c.sync,
+                      icon: const Icon(Icons.refresh),
                     ),
-                    for (var i = 0; i < labels.length; i++)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 4,
-                        ),
-                        child: ListTile(
-                          selected: page == i,
-                          selectedTileColor: scheme.secondaryContainer,
-                          shape: const StadiumBorder(),
-                          leading: Icon(icons[i]),
-                          title: Text(labels[i]),
-                          onTap: () => setState(() => page = i),
-                        ),
-                      ),
-                    const Spacer(),
-                    Padding(
-                      padding: const EdgeInsets.all(24),
+                    IconButton(
+                      tooltip: 'Log out',
+                      onPressed: loggingOut ? null : logout,
+                      icon: const Icon(Icons.logout_rounded),
+                    ),
+                  ],
+                ),
+          body: SafeArea(
+            child: Row(
+              children: [
+                if (wide)
+                  SizedBox(
+                    width: 256,
+                    child: Material(
+                      color: scheme.surfaceContainerLow,
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
-                            c.user!['name'] as String,
-                            style: const TextStyle(fontWeight: FontWeight.w600),
+                          const Padding(
+                            padding: EdgeInsets.fromLTRB(24, 28, 24, 24),
+                            child: Brand(),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            c.user!['email'] as String,
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: scheme.onSurfaceVariant,
+                          Expanded(
+                            child: ListView(
+                              padding: EdgeInsets.zero,
+                              children: [
+                                for (var i = 0; i < labels.length; i++)
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 4,
+                                    ),
+                                    child: Tooltip(
+                                      message: '${labels[i]} · Alt+${i + 1}',
+                                      child: ListTile(
+                                        selected: page == i,
+                                        selectedTileColor:
+                                            scheme.secondaryContainer,
+                                        shape: const StadiumBorder(),
+                                        leading: Icon(icons[i]),
+                                        title: Text(labels[i]),
+                                        onTap: () => setState(() => page = i),
+                                      ),
+                                    ),
+                                  ),
+                              ],
                             ),
-                            maxLines: 2,
+                          ),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            child: ListTile(
+                              key: const Key('open-id-card'),
+                              shape: const StadiumBorder(),
+                              leading: const Icon(Icons.badge_outlined),
+                              title: const Text('ID card'),
+                              trailing: const Icon(Icons.open_in_new, size: 16),
+                              onTap: openIdCard,
+                            ),
+                          ),
+                          const Divider(height: 1),
+                          Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    CircleAvatar(
+                                      radius: 19,
+                                      backgroundColor:
+                                          scheme.secondaryContainer,
+                                      child: Icon(
+                                        Icons.person_outline_rounded,
+                                        size: 20,
+                                        color: scheme.onSecondaryContainer,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            c.user!['name'] ==
+                                                    c.user!['studentId']
+                                                ? 'Your IMS account'
+                                                : c.user!['name'] as String,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            (c.user!['studentId'] ??
+                                                    c.data.account)
+                                                as String,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              color: scheme.onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                SizedBox(
+                                  width: double.infinity,
+                                  child: OutlinedButton.icon(
+                                    key: const Key('sidebar-logout'),
+                                    onPressed: loggingOut ? null : logout,
+                                    icon: const Icon(
+                                      Icons.logout_rounded,
+                                      size: 18,
+                                    ),
+                                    label: Text(
+                                      loggingOut ? 'Logging out…' : 'Log out',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
                     ),
-                  ],
-                ),
-              ),
-            Expanded(
-              child: Column(
-                children: [
-                  if (c.needsLogin || !c.online || c.pending.isNotEmpty)
-                    Material(
-                      color: scheme.surfaceContainerHighest,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 20,
-                          vertical: 10,
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              c.needsLogin
-                                  ? Icons.lock_outline
-                                  : !c.online
-                                  ? Icons.cloud_off_outlined
-                                  : Icons.cloud_upload_outlined,
-                              size: 18,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                c.needsLogin
-                                    ? 'Sign in again to sync. Saved records are available.'
-                                    : !c.online
-                                    ? 'Offline · showing saved records'
-                                    : '${c.pending.length} changes waiting to sync',
-                                style: const TextStyle(fontSize: 12),
-                              ),
-                            ),
-                            TextButton(
-                              onPressed: c.needsLogin
-                                  ? () => showDialog<void>(
-                                      context: context,
-                                      builder: (_) => Dialog(
-                                        child: SizedBox(
-                                          width: 480,
-                                          child: AuthPage(
-                                            c,
-                                            reauthenticate: true,
-                                          ),
-                                        ),
-                                      ),
-                                    )
-                                  : () => c.checkSession(),
-                              child: Text(c.needsLogin ? 'Sign in' : 'Retry'),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  if (c.conflicts.isNotEmpty)
-                    Material(
-                      color: scheme.errorContainer,
-                      child: ListTile(
-                        leading: const Icon(Icons.difference_outlined),
-                        title: const Text('A record changed on another device'),
-                        subtitle: const Text(
-                          'Both versions are kept until you choose.',
-                        ),
-                        trailing: TextButton(
-                          onPressed: () => reviewConflict(context),
-                          child: const Text('Review'),
-                        ),
-                      ),
-                    ),
-                  Expanded(
-                    child: SmoothTabStack(
-                      index: page,
-                      children: [
-                        c.data.subjects.isEmpty
-                            ? connectIntro(context)
-                            : Dashboard(
-                                c,
-                                onPlan: () => setState(() => page = 3),
-                              ),
-                        c.data.subjects.isEmpty
-                            ? const Center(
-                                child: Text(
-                                  'Connect IMS to load your attendance calendar.',
-                                ),
-                              )
-                            : CalendarScreen(c),
-                        TimetableScreen(c),
-                        PlannerScreen(c),
-                        settings(context),
-                      ],
-                    ),
                   ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-      bottomNavigationBar: wide
-          ? null
-          : NavigationBar(
-              selectedIndex: page,
-              onDestinationSelected: (i) => setState(() => page = i),
-              destinations: [
-                for (var i = 0; i < labels.length; i++)
-                  NavigationDestination(icon: Icon(icons[i]), label: labels[i]),
+                Expanded(
+                  child: Column(
+                    children: [
+                      if (wide)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 32,
+                            vertical: 16,
+                          ),
+                          decoration: BoxDecoration(
+                            border: Border(
+                              bottom: BorderSide(
+                                color: scheme.outlineVariant.withValues(
+                                  alpha: .5,
+                                ),
+                              ),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Text(
+                                labels[page],
+                                style: Theme.of(context).textTheme.titleMedium,
+                              ),
+                              const Spacer(),
+                              if (c.data.synced != null) ...[
+                                Text(
+                                  'Updated ${shortDate(c.data.synced!)} · ${TimeOfDay.fromDateTime(c.data.synced!).format(context)}',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: scheme.onSurfaceVariant,
+                                  ),
+                                ),
+                                const SizedBox(width: 20),
+                              ],
+                              FilledButton.tonalIcon(
+                                onPressed: c.refreshing || c.limited
+                                    ? null
+                                    : c.sync,
+                                icon: c.refreshing
+                                    ? const SizedBox(
+                                        width: 16,
+                                        height: 16,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.refresh, size: 18),
+                                label: Text(
+                                  c.refreshing
+                                      ? 'Updating…'
+                                      : 'Refresh attendance',
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      if (c.limited)
+                        Material(
+                          color: scheme.secondaryContainer,
+                          child: ListTile(
+                            leading: const Icon(Icons.history),
+                            title: const Text(
+                              'IMS is unavailable. Showing saved records.',
+                            ),
+                            subtitle: const Text(
+                              'Viewing only. Sign in with IMS again to make changes.',
+                            ),
+                            trailing: TextButton(
+                              onPressed: () => showDialog<void>(
+                                context: context,
+                                builder: (_) => Dialog(
+                                  child: SizedBox(
+                                    width: 480,
+                                    child: AuthPage(c, reauthenticate: true),
+                                  ),
+                                ),
+                              ),
+                              child: const Text('Verify again'),
+                            ),
+                          ),
+                        ),
+                      if (c.needsLogin || !c.online || c.pending.isNotEmpty)
+                        Material(
+                          color: scheme.surfaceContainerHighest,
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 10,
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  c.needsLogin
+                                      ? Icons.lock_outline
+                                      : !c.online
+                                      ? Icons.cloud_off_outlined
+                                      : Icons.cloud_upload_outlined,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    c.needsLogin
+                                        ? 'Sign in again to sync. Saved records are available.'
+                                        : !c.online
+                                        ? 'Offline · showing saved records'
+                                        : '${c.pending.length} changes waiting to sync',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: c.needsLogin
+                                      ? () => showDialog<void>(
+                                          context: context,
+                                          builder: (_) => Dialog(
+                                            child: SizedBox(
+                                              width: 480,
+                                              child: AuthPage(
+                                                c,
+                                                reauthenticate: true,
+                                              ),
+                                            ),
+                                          ),
+                                        )
+                                      : () => c.checkSession(),
+                                  child: Text(
+                                    c.needsLogin ? 'Sign in' : 'Retry',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      if (c.conflicts.isNotEmpty)
+                        Material(
+                          color: scheme.errorContainer,
+                          child: ListTile(
+                            leading: const Icon(Icons.difference_outlined),
+                            title: const Text(
+                              'A record changed on another device',
+                            ),
+                            subtitle: const Text(
+                              'Both versions are kept until you choose.',
+                            ),
+                            trailing: TextButton(
+                              onPressed: () => reviewConflict(context),
+                              child: const Text('Review'),
+                            ),
+                          ),
+                        ),
+                      Expanded(
+                        child: Align(
+                          alignment: Alignment.topCenter,
+                          child: SizedBox(
+                            width: wide
+                                ? (page == 2
+                                      ? 1600
+                                      : page == 4
+                                      ? 960
+                                      : page == 1
+                                      ? 1120
+                                      : 1400)
+                                : double.infinity,
+                            child: SmoothTabStack(
+                              index: page,
+                              children: [
+                                c.data.subjects.isEmpty
+                                    ? connectIntro(context)
+                                    : Dashboard(
+                                        c,
+                                        onPlan: () => setState(() => page = 3),
+                                      ),
+                                c.data.subjects.isEmpty
+                                    ? const Center(
+                                        child: Text(
+                                          'Your calendar will appear after attendance is refreshed.',
+                                        ),
+                                      )
+                                    : CalendarScreen(c),
+                                TimetableScreen(c),
+                                PlannerScreen(c),
+                                settings(context),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ],
             ),
+          ),
+          bottomNavigationBar: wide
+              ? null
+              : NavigationBar(
+                  labelBehavior:
+                      NavigationDestinationLabelBehavior.onlyShowSelected,
+                  selectedIndex: page == 4 ? 5 : page,
+                  onDestinationSelected: (i) {
+                    if (i == 4) {
+                      openIdCard();
+                    } else {
+                      setState(() => page = i == 5 ? 4 : i);
+                    }
+                  },
+                  destinations: [
+                    for (var i = 0; i < 4; i++)
+                      NavigationDestination(
+                        icon: Icon(icons[i]),
+                        label: labels[i],
+                      ),
+                    const NavigationDestination(
+                      key: Key('mobile-id-card'),
+                      icon: Icon(Icons.badge_outlined),
+                      label: 'ID card',
+                      tooltip: 'Open ID card',
+                    ),
+                    NavigationDestination(
+                      icon: Icon(icons[4]),
+                      label: labels[4],
+                    ),
+                  ],
+                ),
+        ),
+      ),
     );
   }
 
@@ -221,7 +476,7 @@ class _WebShellState extends State<WebShell> {
       const Heading(
         'Your semester, in perspective',
         'A little clarity. More freedom.',
-        'Connect IMS once to bring your attendance, calendar and leave planning together.',
+        'Your saved attendance will appear here after the first successful refresh.',
       ),
       Align(
         alignment: Alignment.centerLeft,
@@ -234,7 +489,7 @@ class _WebShellState extends State<WebShell> {
                 const Icon(Icons.school_outlined, size: 36),
                 const SizedBox(height: 18),
                 Text(
-                  'Connect your university account',
+                  'Your semester starts here',
                   style: Theme.of(context).textTheme.titleLarge,
                 ),
                 const SizedBox(height: 10),
@@ -245,7 +500,7 @@ class _WebShellState extends State<WebShell> {
                 FilledButton.icon(
                   onPressed: () => connect(context),
                   icon: const Icon(Icons.link),
-                  label: const Text('Connect IMS'),
+                  label: const Text('Verify IMS login'),
                 ),
               ],
             ),
@@ -255,7 +510,12 @@ class _WebShellState extends State<WebShell> {
     ],
   );
   Future<void> connect(BuildContext context) async {
-    await showDialog<void>(context: context, builder: (_) => ImsDialog(c));
+    await showDialog<void>(
+      context: context,
+      builder: (_) => Dialog(
+        child: SizedBox(width: 480, child: AuthPage(c, reauthenticate: true)),
+      ),
+    );
   }
 
   Widget settings(BuildContext context) => ListView(
@@ -321,7 +581,7 @@ class _WebShellState extends State<WebShell> {
           children: [
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(c.user!['email'] as String),
+              title: Text((c.user!['studentId'] ?? c.user!['name']) as String),
               subtitle: const Text('Attendly account'),
               leading: const Icon(Icons.account_circle_outlined),
             ),
@@ -337,9 +597,26 @@ class _WebShellState extends State<WebShell> {
               ),
               trailing: TextButton(
                 onPressed: () => connect(context),
-                child: const Text('Connect IMS'),
+                child: const Text('Verify login'),
               ),
             ),
+            if (c.user?['rememberIms'] == true)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Saved IMS password'),
+                subtitle: const Text(
+                  'Encrypted on the server for background refresh.',
+                ),
+                trailing: TextButton(
+                  onPressed: c.limited
+                      ? null
+                      : () => safely(context, () async {
+                          await c.api.post('/ims/forget-password');
+                          await c.checkSession();
+                        }),
+                  child: const Text('Remove'),
+                ),
+              ),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('Sync records'),
@@ -367,7 +644,7 @@ class _WebShellState extends State<WebShell> {
       ),
       const SizedBox(height: 20),
       const Text(
-        'Attendly is an independent student tool. Records sync to your Attendly account, with a saved copy on this device for offline use. Your IMS password is used to connect and is not saved.',
+        'Attendly is an independent student tool. Records sync to your Attendly account, with a saved copy on this device for offline use. Background refresh uses your encrypted IMS password if you enable it. Remove the saved password at any time in Settings.',
         style: TextStyle(fontSize: 12),
       ),
     ],
@@ -423,11 +700,13 @@ class Brand extends StatelessWidget {
         child: CustomPaint(painter: _BrandPainter()),
       ),
       const SizedBox(width: 8),
-      Text(
-        'attendly',
-        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-          fontWeight: FontWeight.w700,
-          letterSpacing: -.7,
+      Flexible(
+        child: Text(
+          'attendly',
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w700,
+            letterSpacing: -.7,
+          ),
         ),
       ),
     ],
@@ -463,28 +742,62 @@ class AuthPage extends StatefulWidget {
 }
 
 class _AuthPageState extends State<AuthPage> {
-  final email = TextEditingController(),
+  final student = TextEditingController(),
       password = TextEditingController(),
-      name = TextEditingController();
+      captcha = TextEditingController();
   final form = GlobalKey<FormState>();
-  bool signup = false, hidden = true;
-  String? error;
+  Map<String, dynamic>? challenge;
+  bool hidden = true, remember = true, loading = false;
+  String? error, challengeError;
+  @override
+  void initState() {
+    super.initState();
+    student.text = widget.controller.data.account;
+    unawaited(loadChallenge());
+  }
+
   @override
   void dispose() {
-    email.dispose();
+    student.dispose();
     password.dispose();
-    name.dispose();
+    captcha.dispose();
     super.dispose();
+  }
+
+  Future<void> loadChallenge() async {
+    setState(() {
+      loading = true;
+      challenge = null;
+      captcha.clear();
+      challengeError = null;
+    });
+    try {
+      final value = await widget.controller.api.post('/auth/ims/challenge');
+      if (mounted) {
+        setState(() {
+          challenge = value;
+          captcha.text = value['answer'] as String? ?? '';
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => challengeError = Api.message(e));
+    } finally {
+      if (mounted) setState(() => loading = false);
+    }
   }
 
   Future<void> submit() async {
     if (!form.currentState!.validate()) return;
+    setState(() => error = null);
     try {
-      await widget.controller.signIn(
-        email.text,
-        password.text,
-        name: signup ? name.text : null,
-      );
+      await widget.controller.signIn({
+        'studentId': student.text.trim(),
+        'password': password.text,
+        'challenge': challenge?['id'],
+        'captcha': captcha.text.trim(),
+        'remember': remember,
+      });
+      password.clear();
       if (mounted && widget.reauthenticate) Navigator.pop(context);
     } catch (e) {
       if (mounted) setState(() => error = Api.message(e));
@@ -493,9 +806,9 @@ class _AuthPageState extends State<AuthPage> {
 
   @override
   Widget build(BuildContext context) {
-    final c = widget.controller,
-        wide =
-            MediaQuery.sizeOf(context).width >= 960 && !widget.reauthenticate;
+    final c = widget.controller;
+    final wide =
+        MediaQuery.sizeOf(context).width >= 960 && !widget.reauthenticate;
     final panel = ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 440),
       child: Surface(
@@ -508,56 +821,31 @@ class _AuthPageState extends State<AuthPage> {
               const Brand(),
               const SizedBox(height: 28),
               Text(
-                signup ? 'Make room for life.' : 'Welcome back.',
+                'Sign in with IMS',
                 style: Theme.of(context).textTheme.headlineLarge,
               ),
               const SizedBox(height: 8),
-              Text(
-                signup
-                    ? 'Create your Attendly account, then connect IMS.'
-                    : 'Sign in to your attendance, wherever you are.',
+              const Text(
+                'Use your university login. Your Attendly account is created automatically after IMS verifies you.',
               ),
               const SizedBox(height: 24),
-              if (c.googleEnabled) ...[
-                OutlinedButton(
-                  onPressed: c.api.google,
-                  child: const Text('Continue with Google'),
-                ),
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Text('or use your email', textAlign: TextAlign.center),
-                ),
-              ],
-              if (signup) ...[
-                TextFormField(
-                  controller: name,
-                  autofillHints: const [AutofillHints.name],
-                  decoration: const InputDecoration(labelText: 'Your name'),
-                  validator: (v) =>
-                      v == null || v.trim().isEmpty ? 'Enter your name' : null,
-                ),
-                const SizedBox(height: 14),
-              ],
               TextFormField(
-                controller: email,
-                autofillHints: const [AutofillHints.email],
-                keyboardType: TextInputType.emailAddress,
-                decoration: const InputDecoration(labelText: 'Email'),
+                controller: student,
+                autofillHints: const [AutofillHints.username],
+                decoration: const InputDecoration(labelText: 'IMS student ID'),
                 validator: (v) =>
                     v != null &&
-                        RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(v.trim())
+                        RegExp(r'^[A-Za-z0-9-]{4,40}$').hasMatch(v.trim())
                     ? null
-                    : 'Enter a valid email',
+                    : 'Enter your IMS student ID',
               ),
               const SizedBox(height: 14),
               TextFormField(
                 controller: password,
-                autofillHints: [
-                  signup ? AutofillHints.newPassword : AutofillHints.password,
-                ],
+                autofillHints: const [AutofillHints.password],
                 obscureText: hidden,
                 decoration: InputDecoration(
-                  labelText: 'Password',
+                  labelText: 'IMS password',
                   suffixIcon: IconButton(
                     tooltip: hidden ? 'Show password' : 'Hide password',
                     onPressed: () => setState(() => hidden = !hidden),
@@ -568,10 +856,57 @@ class _AuthPageState extends State<AuthPage> {
                     ),
                   ),
                 ),
-                validator: (v) => v == null || v.length < 8
-                    ? 'Use at least 8 characters'
-                    : null,
-                onFieldSubmitted: (_) => submit(),
+                validator: (v) =>
+                    v == null || v.isEmpty ? 'Enter your IMS password' : null,
+              ),
+              const SizedBox(height: 14),
+              if (loading) const LinearProgressIndicator(),
+              if (challenge != null) ...[
+                Image.memory(
+                  Uri.parse(
+                    challenge!['image'] as String,
+                  ).data!.contentAsBytes(),
+                  height: 60,
+                ),
+                TextFormField(
+                  controller: captcha,
+                  decoration: const InputDecoration(
+                    labelText: 'Security number',
+                    helperMaxLines: 2,
+                    helperText:
+                        'Filled automatically when possible. You can correct it.',
+                  ),
+                ),
+              ],
+              if (challengeError != null)
+                Text(
+                  challengeError!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: loading || c.busy ? null : loadChallenge,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Refresh security image'),
+                ),
+              ),
+              CheckboxListTile(
+                contentPadding: EdgeInsets.zero,
+                value: remember,
+                controlAffinity: ListTileControlAffinity.leading,
+                onChanged: c.busy
+                    ? null
+                    : (v) => setState(() => remember = v ?? false),
+                title: const Text('Keep attendance updated in the background'),
+                subtitle: const Text(
+                  'Stores an encrypted IMS password on the server. You can remove it in Settings.',
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'If IMS is down, your last verified password can open saved records for up to 7 days after verification.',
+                style: TextStyle(fontSize: 12),
               ),
               if (error != null)
                 Padding(
@@ -583,36 +918,12 @@ class _AuthPageState extends State<AuthPage> {
                     ),
                   ),
                 ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               FilledButton(
-                onPressed: c.busy ? null : submit,
+                onPressed: c.busy || loading ? null : submit,
                 child: Text(
-                  c.busy
-                      ? 'Please wait…'
-                      : signup
-                      ? 'Create account'
-                      : 'Sign in',
+                  c.busy ? 'Verifying with IMS…' : 'Continue with IMS',
                 ),
-              ),
-              const SizedBox(height: 12),
-              TextButton(
-                onPressed: c.busy
-                    ? null
-                    : () => setState(() {
-                        signup = !signup;
-                        error = null;
-                      }),
-                child: Text(
-                  signup
-                      ? 'Already have an account? Sign in'
-                      : 'New here? Create an account',
-                ),
-              ),
-              const SizedBox(height: 12),
-              const Text(
-                'Your Attendly account is separate from your IMS login.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12),
               ),
             ],
           ),
@@ -630,12 +941,12 @@ class _AuthPageState extends State<AuthPage> {
                     children: [
                       Flexible(
                         child: Padding(
-                          padding: EdgeInsets.only(right: 72),
+                          padding: const EdgeInsets.only(right: 72),
                           child: ConstrainedBox(
-                            constraints: BoxConstraints(maxWidth: 440),
+                            constraints: const BoxConstraints(maxWidth: 440),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
+                              children: const [
                                 Text(
                                   'YOUR SEMESTER, IN PERSPECTIVE',
                                   style: TextStyle(
@@ -672,132 +983,4 @@ class _AuthPageState extends State<AuthPage> {
       ),
     );
   }
-}
-
-class ImsDialog extends StatefulWidget {
-  final AppController c;
-  const ImsDialog(this.c, {super.key});
-  @override
-  State<ImsDialog> createState() => _ImsDialogState();
-}
-
-class _ImsDialogState extends State<ImsDialog> {
-  final student = TextEditingController(),
-      password = TextEditingController(),
-      captcha = TextEditingController();
-  Map<String, dynamic>? challenge;
-  String? error;
-  bool busy = false;
-  @override
-  void initState() {
-    super.initState();
-    student.text = widget.c.data.account;
-    unawaited(load());
-  }
-
-  @override
-  void dispose() {
-    student.dispose();
-    password.dispose();
-    captcha.dispose();
-    super.dispose();
-  }
-
-  Future<void> load() async {
-    setState(() {
-      busy = true;
-      error = null;
-    });
-    try {
-      final value = await widget.c.api.post('/ims/challenge');
-      if (mounted) setState(() => challenge = value);
-    } catch (e) {
-      if (mounted) setState(() => error = Api.message(e));
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
-  }
-
-  Future<void> connect() async {
-    if (challenge == null) return;
-    setState(() {
-      busy = true;
-      error = null;
-    });
-    try {
-      await widget.c.connect({
-        'challenge': challenge!['id'],
-        'studentId': student.text.trim(),
-        'password': password.text,
-        'captcha': captcha.text.trim(),
-      });
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      if (mounted) setState(() => error = Api.message(e));
-    } finally {
-      password.clear();
-      if (mounted) setState(() => busy = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Connect IMS'),
-    content: SizedBox(
-      width: 430,
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'Use your university login. Your IMS password is not saved.',
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: student,
-              decoration: const InputDecoration(labelText: 'Student ID'),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: password,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: 'IMS password'),
-            ),
-            const SizedBox(height: 16),
-            if (busy) const LinearProgressIndicator(),
-            if (challenge != null)
-              Image.network(challenge!['image'] as String, height: 70),
-            TextButton.icon(
-              onPressed: busy ? null : load,
-              icon: const Icon(Icons.refresh),
-              label: const Text('New security image'),
-            ),
-            TextField(
-              controller: captcha,
-              decoration: const InputDecoration(labelText: 'Security number'),
-            ),
-            if (error != null)
-              Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Text(
-                  error!,
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
-                ),
-              ),
-          ],
-        ),
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(
-        onPressed: busy || challenge == null ? null : connect,
-        child: const Text('Connect & fetch'),
-      ),
-    ],
-  );
 }

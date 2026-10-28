@@ -28,29 +28,28 @@ class Api {
     Map<String, dynamic>? data,
   ]) async {
     if (_csrf == null) await csrf();
-    final response = await dio.post<dynamic>(
+    Future<Response<dynamic>> send() => dio.post<dynamic>(
       path,
       data: data,
       options: Options(headers: {'X-CSRF-TOKEN': _csrf}),
     );
+    late Response<dynamic> response;
+    try {
+      response = await send();
+    } on DioException catch (e) {
+      // Retry only an explicit CSRF rejection: the server has not executed
+      // the mutation. Never retry arbitrary failures or rejected credentials.
+      if (e.response?.statusCode != 403 ||
+          e.response?.data is! Map ||
+          (e.response!.data as Map)['code'] != 'CSRF_INVALID') {
+        rethrow;
+      }
+      await csrf();
+      response = await send();
+    }
     return response.data is Map
         ? Map<String, dynamic>.from(response.data as Map)
         : {};
-  }
-
-  Future<Map<String, dynamic>> login(
-    String email,
-    String password, {
-    String? name,
-  }) async {
-    final user = await post(name == null ? '/auth/login' : '/auth/signup', {
-      'email': email.trim(),
-      'password': password,
-      if (name != null) 'name': name.trim(),
-    });
-    _csrf = null;
-    await csrf();
-    return user;
   }
 
   Future<void> logout() async {
@@ -58,12 +57,20 @@ class Api {
     _csrf = null;
   }
 
-  void google() => navigateTo(
-    '${base.replaceFirst(RegExp(r'/api/?$'), '')}/oauth2/authorization/google',
-  );
+  Future<Map<String, dynamic>> imsLogin(Map<String, dynamic> fields) async {
+    final user = await post('/auth/ims/login', fields);
+    _csrf = null;
+    await csrf();
+    return user;
+  }
+
   static String message(Object error) =>
       error is DioException && error.response?.data is Map
       ? (error.response!.data as Map)['message']?.toString() ??
-            'The request could not be completed.'
+            (error.response?.statusCode == 401
+                ? 'Your Attendly session expired. Please sign in again.'
+                : error.response?.statusCode == 403
+                ? 'Your session expired. Reload the page and sign in again.'
+                : 'The request could not be completed.')
       : 'Could not connect. Your saved records are still available.';
 }

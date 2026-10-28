@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import '../domain/models.dart';
+import '../domain/student_id.dart';
 import 'api.dart';
 import 'store.dart';
 
@@ -12,6 +13,7 @@ class AppController extends ChangeNotifier {
   final LocalStore db;
   AppController(this.api, this.db);
   AppData data = const AppData();
+  StudentIdData? idCard;
   Map<String, dynamic>? user;
   String scope = '', theme = 'system', timeFormat = '24';
   int accent = 0xFF2463BC;
@@ -19,7 +21,6 @@ class AppController extends ChangeNotifier {
       busy = false,
       refreshing = false,
       online = false,
-      googleEnabled = false,
       imsSessionReady = false,
       needsLogin = false;
   String? error;
@@ -50,6 +51,10 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _restore() async {
+    final card = await db.read('id-card:$_owner');
+    idCard = card is Map
+        ? StudentIdData.fromJson(Map<String, dynamic>.from(card))
+        : null;
     final saved = await db.read('account:$_owner');
     if (saved is Map) {
       data = AppData.fromJson(Map<String, dynamic>.from(saved['data'] as Map));
@@ -75,7 +80,6 @@ class AppController extends ChangeNotifier {
 
   Future<void> checkSession() async {
     try {
-      googleEnabled = (await api.get('/config'))['googleEnabled'] == true;
       final current = await api.get('/auth/me');
       if (user != null && user!['id'] != current['id']) {
         needsLogin = true;
@@ -96,14 +100,17 @@ class AppController extends ChangeNotifier {
     changed();
   }
 
-  Future<void> signIn(String email, String password, {String? name}) async {
+  bool get limited => user?['limited'] == true;
+
+  Future<void> signIn(Map<String, dynamic> fields) async {
     busy = true;
     error = null;
     changed();
     try {
       await _serial.catchError((Object _) {});
-      final next = await api.login(email, password, name: name);
+      final next = await api.imsLogin(fields);
       if (user?['id'] != next['id']) {
+        idCard = null;
         data = const AppData();
         scope = '';
         pending = [];
@@ -133,11 +140,41 @@ class AppController extends ChangeNotifier {
     await api.logout();
     await db.clear();
     user = null;
+    idCard = null;
     data = const AppData();
     scope = '';
     serverRecords = {};
     conflicts = [];
     pending = [];
+    changed();
+  }
+
+  Future<void> loadIdCard({bool refresh = false}) async {
+    final owner = _owner;
+    if (owner.isEmpty) {
+      throw StateError('Sign in with IMS to load your ID card.');
+    }
+    if (refresh && limited) {
+      throw StateError('Verify your IMS login to refresh your ID card.');
+    }
+    var result = refresh
+        ? await api.post('/id-card/refresh')
+        : await api.get('/id-card');
+    if (!refresh && (result['card'] as Map).isEmpty && !limited) {
+      result = await api.post('/id-card/refresh');
+    }
+    if (_owner != owner) return;
+    final payload = Map<String, dynamic>.from(result['card'] as Map);
+    if (payload.isEmpty) return;
+    final card = StudentIdData.fromJson(payload);
+    final student = user?['studentId'] ?? data.account;
+    if (card.rollNumber.toUpperCase() != student.toString().toUpperCase()) {
+      throw StateError('The ID card belongs to another account.');
+    }
+    idCard = card;
+    await db.write('id-card:$owner', card.toJson());
+    user!['name'] = card.name;
+    await db.write('current-user', user);
     changed();
   }
 
@@ -167,7 +204,7 @@ class AppController extends ChangeNotifier {
     if (user == null) return;
     try {
       // Upload the oldest operations first. UUIDs make retries safe after a lost response.
-      while (pending.isNotEmpty) {
+      while (pending.isNotEmpty && !limited) {
         final mutation = pending.first;
         try {
           final saved = await api.post('/records', mutation);
@@ -300,6 +337,9 @@ class AppController extends ChangeNotifier {
           },
       };
       final before = items(old), after = items(next);
+      if (limited && jsonEncode(before) != jsonEncode(after)) {
+        throw StateError('Sign in with IMS again to change saved records.');
+      }
       for (final k in {...before.keys, ...after.keys}) {
         if (jsonEncode(before[k]) == jsonEncode(after[k])) continue;
         final item = after[k] ?? before[k]!;
@@ -337,11 +377,6 @@ class AppController extends ChangeNotifier {
       refreshing = false;
       changed();
     }
-  }
-
-  Future<void> connect(Map<String, dynamic> credentials) async {
-    await api.post('/ims/connect', credentials);
-    await synchronize();
   }
 
   Future<void> saveTimetableDraft(String value) =>

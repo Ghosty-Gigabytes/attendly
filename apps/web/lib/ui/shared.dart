@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'bauhaus_theme.dart';
 import 'material_design.dart';
 import 'package:intl/intl.dart';
 import '../domain/models.dart';
@@ -20,9 +19,6 @@ String shortDate(DateTime d) => DateFormat('d-MMM', 'en_US').format(d);
 bool isMaterialDesign(BuildContext context) =>
     Theme.of(context).extension<MaterialDesign>() != null;
 
-bool isBauhaus(BuildContext context) =>
-    Theme.of(context).extension<BauhausPalette>() != null;
-
 Color tone(BuildContext context, Color color) {
   final theme = Theme.of(context);
   if (isMaterialDesign(context)) {
@@ -35,17 +31,6 @@ Color tone(BuildContext context, Color color) {
     if (color == amber) return Color(dark ? 0xFFF1C16B : 0xFF805600);
     if (color == red) return theme.colorScheme.error;
     if (color == offDay) return theme.colorScheme.primary;
-  }
-  final bauhaus = theme.extension<BauhausPalette>();
-  if (bauhaus != null) {
-    if (color == ink) return theme.colorScheme.onSurface;
-    if (color == muted) return bauhaus.muted;
-    if (color == paper) return theme.scaffoldBackgroundColor;
-    if (color == line) return theme.colorScheme.outlineVariant;
-    if (color == green) return bauhaus.positive;
-    if (color == amber) return bauhaus.caution;
-    if (color == red) return bauhaus.negative;
-    if (color == offDay) return bauhaus.offDay;
   }
   if (Theme.of(context).brightness != Brightness.dark) return color;
   if (color == ink) return const Color(0xFFE7E8EA);
@@ -77,13 +62,10 @@ class Surface extends StatelessWidget {
             ? Theme.of(context).colorScheme.surfaceContainerLow
             : Theme.of(context).colorScheme.surface),
     shape: RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(isBauhaus(context) ? 0 : 24),
+      borderRadius: BorderRadius.circular(24),
       side: isMaterialDesign(context)
           ? BorderSide.none
-          : BorderSide(
-              color: tone(context, line),
-              width: isBauhaus(context) ? 1.5 : 1,
-            ),
+          : BorderSide(color: tone(context, line), width: 1),
     ),
     child: Padding(padding: padding, child: child),
   );
@@ -98,7 +80,7 @@ class Tag extends StatelessWidget {
     padding: EdgeInsets.symmetric(horizontal: 10, vertical: 6),
     decoration: BoxDecoration(
       color: tone(context, color).withValues(alpha: .09),
-      borderRadius: BorderRadius.circular(isBauhaus(context) ? 0 : 8),
+      borderRadius: BorderRadius.circular(8),
     ),
     child: Text(
       text,
@@ -120,32 +102,6 @@ class Heading extends StatelessWidget {
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (isBauhaus(context)) ...[
-          const ExcludeSemantics(
-            child: Row(
-              children: [
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: Color(0xFFD43B2C),
-                    shape: BoxShape.circle,
-                  ),
-                  child: SizedBox(width: 18, height: 18),
-                ),
-                SizedBox(width: 8),
-                ColoredBox(
-                  color: Color(0xFF174CBD),
-                  child: SizedBox(width: 18, height: 18),
-                ),
-                SizedBox(width: 8),
-                ColoredBox(
-                  color: Color(0xFFFFD447),
-                  child: SizedBox(width: 40, height: 18),
-                ),
-              ],
-            ),
-          ),
-          SizedBox(height: 16),
-        ],
         if (!isMaterialDesign(context))
           Text(
             eyebrow.toUpperCase(),

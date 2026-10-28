@@ -15,38 +15,78 @@ class MaterialOverviewSummary extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = Theme.of(context).colorScheme;
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.all(MediaQuery.sizeOf(context).width < 600 ? 22 : 30),
       decoration: BoxDecoration(
-        color: c.primaryContainer,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [c.primaryContainer, c.secondaryContainer],
+        ),
         borderRadius: BorderRadius.circular(28),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(Icons.insights_rounded, color: c.onPrimaryContainer, size: 28),
-          const SizedBox(height: 16),
-          Text(
-            atRisk == 0
-                ? 'Plan your next break'
-                : '$atRisk ${atRisk == 1 ? 'subject needs' : 'subjects need'} attention',
-            style: TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.w400,
-              color: c.onPrimaryContainer,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Check each subject before planning time off.',
-            style: TextStyle(color: c.onPrimaryContainer),
-          ),
-          const SizedBox(height: 20),
-          FilledButton.icon(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final content = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.insights_rounded,
+                    color: c.onPrimaryContainer,
+                    size: 22,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(
+                    'OFFICIAL ATTENDANCE',
+                    style: TextStyle(
+                      fontSize: 11,
+                      letterSpacing: 1.5,
+                      fontWeight: FontWeight.w700,
+                      color: c.onPrimaryContainer,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Text(
+                atRisk == 0
+                    ? 'A little room to breathe.'
+                    : '$atRisk ${atRisk == 1 ? 'subject to' : 'subjects to'} keep an eye on.',
+                style: TextStyle(
+                  fontSize: 26,
+                  height: 1.2,
+                  letterSpacing: -.6,
+                  fontWeight: FontWeight.w600,
+                  color: c.onPrimaryContainer,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'Your 75% target is checked for each subject.',
+                style: TextStyle(height: 1.5, color: c.onPrimaryContainer),
+              ),
+            ],
+          );
+          final action = FilledButton.icon(
             onPressed: onPlan,
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('Create a plan'),
-          ),
-        ],
+            icon: const Icon(Icons.arrow_outward_rounded, size: 18),
+            label: const Text('Plan a break'),
+          );
+          return constraints.maxWidth >= 760
+              ? Row(
+                  children: [
+                    Expanded(child: content),
+                    const SizedBox(width: 28),
+                    action,
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [content, const SizedBox(height: 22), action],
+                );
+        },
       ),
     );
   }

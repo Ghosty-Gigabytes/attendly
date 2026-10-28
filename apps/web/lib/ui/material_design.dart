@@ -34,13 +34,13 @@ ThemeData materialDesignTheme(
     textTheme: TextTheme(
       headlineLarge: TextStyle(
         fontSize: 32,
-        fontWeight: FontWeight.w400,
-        letterSpacing: -.5,
+        fontWeight: FontWeight.w600,
+        letterSpacing: -.9,
         color: scheme.onSurface,
       ),
       headlineSmall: TextStyle(
         fontSize: 24,
-        fontWeight: FontWeight.w400,
+        fontWeight: FontWeight.w500,
         color: scheme.onSurface,
       ),
       titleLarge: TextStyle(

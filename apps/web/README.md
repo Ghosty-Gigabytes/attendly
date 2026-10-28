@@ -1,17 +1,13 @@
-# attendly_web
+# Attendly web
 
-A new Flutter project.
+Flutter Material 3 client for the Spring Boot IMS-backed backend. No separate email account or Google SSO is used.
 
-## Getting Started
+From the repository root, run `scripts/build-web.ps1`, then `scripts/start-server.ps1`. Open http://localhost:8080.
 
-This project is a starting point for a Flutter application.
+For frontend development, start the local backend with WEB_ORIGIN=http://localhost:5173, then run from this folder:
 
-A few resources to get you started if this is your first Flutter project:
+```powershell
+../../work/flutter.ps1 run -d chrome --web-port 5173 --dart-define=API_BASE=http://localhost:8080/api
+```
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
-
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+The mobile ID-card destination opens the private fullscreen viewer; Alt+I or the sidebar opens it on desktop. Authentication, cache, refresh, and key-management details are in the repository README.
