@@ -17,23 +17,40 @@ import static org.springframework.http.HttpStatus.*;
 @Service
 class ImsService {
  static final URI ROOT=URI.create("https://www.imsnsit.org/imsnsit/");
+ static class Unavailable extends RuntimeException { Unavailable(){super("IMS is temporarily unavailable.");} }
  final Map<String,Flow> flows=new ConcurrentHashMap<>(); final JdbcClient sql;
- ImsService(JdbcClient sql){this.sql=sql;}
+ final CaptchaOcr ocr;
+ ImsService(JdbcClient sql,CaptchaOcr ocr){this.sql=sql;this.ocr=ocr;}
  static class Flow {
    final String challenge=UUID.randomUUID().toString(); final Instant started=Instant.now();
    final HttpClient client=HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(20)).cookieHandler(new CookieManager(null,CookiePolicy.ACCEPT_ORIGINAL_SERVER)).followRedirects(HttpClient.Redirect.NEVER).build();
-   String token,student; URI activity;
+   String token,student; URI activity,logo;
  }
  boolean ready(String owner){var f=flows.get(owner);return f!=null&&f.activity!=null&&f.started.isAfter(Instant.now().minus(Duration.ofMinutes(30)));}
  static void allow(URI uri){if(!"https".equals(uri.getScheme())||!Set.of("imsnsit.org","www.imsnsit.org").contains(uri.getHost())||(uri.getPort()!=-1&&uri.getPort()!=443)||!uri.getPath().startsWith("/imsnsit"))throw new ResponseStatusException(BAD_GATEWAY,"IMS returned an unexpected destination.");}
+ static HttpRequest.Builder portalRequest(URI uri){
+   // IMS uses these headers even on GET requests. Match the working Android
+   // adapter: omitting them can return a placeholder instead of the login form.
+   return HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(35))
+     .header("User-Agent","Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.119 Safari/537.36")
+     .header("Accept","text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
+     .header("Accept-Language","en-US,en;q=0.5")
+     .header("Upgrade-Insecure-Requests","1")
+     .header("Referer",ROOT.resolve("student_login.php").toString())
+     .header("Origin","https://www.imsnsit.org")
+     .header("Content-Type","application/x-www-form-urlencoded");
+ }
  static HttpResponse<byte[]> request(Flow f,URI uri,Map<String,String> fields) throws Exception {
    for(int i=0;i<6;i++){
      allow(uri);
-     var b=HttpRequest.newBuilder(uri).timeout(Duration.ofSeconds(35)).header("User-Agent","Mozilla/5.0 Attendly").header("Referer",ROOT.resolve("student_login.php").toString());
-     if(fields==null)b.GET();else b.header("Content-Type","application/x-www-form-urlencoded").header("Origin","https://www.imsnsit.org").POST(HttpRequest.BodyPublishers.ofString(encode(fields)));
-     var response=f.client.send(b.build(),HttpResponse.BodyHandlers.ofByteArray());
+     var b=portalRequest(uri);
+     if(fields==null)b.GET();else b.POST(HttpRequest.BodyPublishers.ofString(encode(fields)));
+     HttpResponse<byte[]> response;
+     try{response=f.client.send(b.build(),HttpResponse.BodyHandlers.ofByteArray());}
+     catch(java.net.ConnectException|java.net.http.HttpTimeoutException e){throw new Unavailable();}
      if(response.body().length>4000000)throw new ResponseStatusException(BAD_GATEWAY,"IMS returned a report that is too large.");
      if(response.statusCode()>=300&&response.statusCode()<400){uri=uri.resolve(response.headers().firstValue("location").orElseThrow());if(response.statusCode()!=307&&response.statusCode()!=308)fields=null;continue;}
+     if(Set.of(502,503,504).contains(response.statusCode()))throw new Unavailable();
      if(response.statusCode()!=200)throw new ResponseStatusException(BAD_GATEWAY,"IMS could not complete the request. Try again later.");
      return response;
    }
@@ -50,9 +67,10 @@ class ImsService {
    f.token=token.attr("value");var response=request(f,URI.create(image.absUrl("src")),null);
    byte[] bytes=response.body();String mime=response.headers().firstValue("content-type").orElse("").split(";")[0];
    if(bytes.length<8||!Set.of("image/png","image/jpeg","image/gif").contains(mime))throw new ResponseStatusException(BAD_GATEWAY,"IMS returned an invalid CAPTCHA image.");
-   flows.put(owner,f);return Map.of("id",f.challenge,"image","data:"+mime+";base64,"+Base64.getEncoder().encodeToString(bytes));
+   String answer=ocr.recognize(bytes);
+   flows.put(owner,f);return Map.of("id",f.challenge,"image","data:"+mime+";base64,"+Base64.getEncoder().encodeToString(bytes),"answer",answer);
  }
- Map<String,Object> connect(String owner,String challenge,String student,String password,String captcha) throws Exception {
+ Map<String,Object> verify(String owner,String challenge,String student,String password,String captcha) throws Exception {
    var f=flows.get(owner);
    if(f==null||!f.challenge.equals(challenge)||f.started.isBefore(Instant.now().minusSeconds(300)))throw new ResponseStatusException(BAD_REQUEST,"Refresh the expired CAPTCHA.");
    synchronized(f){
@@ -62,15 +80,51 @@ class ImsService {
      var page=doc(request(f,ROOT.resolve("student_login.php"),fields));
      if(page.selectFirst("[name=HRAND_NUM],#HRAND_NUM")!=null)throw new ResponseStatusException(BAD_REQUEST,"IMS rejected the login. Refresh the CAPTCHA and check your credentials.");
      f.activity=link(page,"My Activities");f.student=student;
-     try{return fetch(owner);}catch(Exception e){f.activity=null;throw e;}
+     var logo=page.selectFirst("img[src*=logo],img[width=100][height=100][src]");
+     if(logo!=null)f.logo=URI.create(logo.absUrl("src"));
+     try{return readSnapshot(f);}catch(Exception e){f.activity=null;throw e;}
    }
  }
  static URI link(Document page,String text){return page.select("a[href]").stream().filter(a->a.text().replace(".","").trim().equalsIgnoreCase(text.replace(".",""))).map(a->URI.create(a.absUrl("href"))).findFirst().orElseThrow(()->new ResponseStatusException(BAD_GATEWAY,"IMS navigation changed. Reconnect or retry later."));}
  static String selected(Document doc,String selector){var el=doc.selectFirst(selector+" option[selected]");return el==null?"":el.val();}
+ Map<String,Object> idCard(String owner) throws Exception {
+   if(!ready(owner))throw new ResponseStatusException(CONFLICT,"Sign in with IMS again to load your ID card.");
+   var f=flows.get(owner);
+   synchronized(f){
+     var menu=doc(request(f,f.activity,null));
+     URI target=IdCardParser.link(menu,"ID Card Details","ID Card Detail");
+     if(target==null){
+       URI personal=IdCardParser.link(menu,"Personal Info","Personal Information");
+       if(personal!=null)target=IdCardParser.link(doc(request(f,personal,null)),"ID Card Details","ID Card Detail");
+     }
+     if(target==null)throw new ResponseStatusException(BAD_GATEWAY,"Could not find ID Card Details under Personal Info in IMS.");
+     var parsed=IdCardParser.parse(doc(request(f,target,null)),f.student);
+     var data=new LinkedHashMap<>(parsed.data());
+     data.put("photo",cardImage(f,parsed.photo()));data.put("signature",cardImage(f,parsed.signature()));
+     data.put("logo",cardImage(f,f.logo==null?ROOT.resolve("images/mlogo.png"):f.logo));
+     return data;
+   }
+ }
+ static String cardImage(Flow f,URI uri){
+   if(uri==null)return null;
+   try{
+     byte[] bytes=request(f,uri,null).body();
+     if(bytes.length<12||bytes.length>1_000_000)return null;
+     boolean valid=(bytes[0]==(byte)0xff&&bytes[1]==(byte)0xd8&&bytes[2]==(byte)0xff)
+       ||(bytes[0]==(byte)0x89&&bytes[1]==0x50&&bytes[2]==0x4e&&bytes[3]==0x47)
+       ||(bytes[0]==0x47&&bytes[1]==0x49&&bytes[2]==0x46)
+       ||(new String(bytes,0,4,StandardCharsets.US_ASCII).equals("RIFF")&&new String(bytes,8,4,StandardCharsets.US_ASCII).equals("WEBP"));
+     return valid?Base64.getEncoder().encodeToString(bytes):null;
+   }catch(Exception unavailable){return null;}
+ }
  Map<String,Object> fetch(String owner) throws Exception {
    if(!ready(owner))throw new ResponseStatusException(CONFLICT,"Reconnect IMS to refresh. Your saved attendance is still available.");
    var f=flows.get(owner);
    synchronized(f){
+     var data=readSnapshot(f);saveSnapshot(owner,f.student,data);return data;
+   }
+ }
+ Map<String,Object> readSnapshot(Flow f) throws Exception {
      var activity=doc(request(f,f.activity,null));String year=selected(activity,"select[name=year]");
      if(!year.matches("\\d{4}-\\d{2,4}"))throw new ResponseStatusException(BAD_GATEWAY,"Could not verify the current academic year.");
      String semester="";Map<String,String> names=new HashMap<>();
@@ -89,18 +143,20 @@ class ImsService {
      URI action=form==null?URI.create(formPage.baseUri()):URI.create(form.absUrl("action").isBlank()?formPage.baseUri():form.absUrl("action"));
      var report=doc(request(f,action,fields));
      // A report has the verified student number. Never attach an unchecked identity.
-     if(!report.text().toUpperCase(Locale.ROOT).contains(f.student.toUpperCase(Locale.ROOT)))throw new ResponseStatusException(BAD_GATEWAY,"Could not verify the student identity in this report.");
+     if(!Pattern.compile("(?<![A-Z0-9-])"+Pattern.quote(f.student.toUpperCase(Locale.ROOT))+"(?![A-Z0-9-])").matcher(report.text().toUpperCase(Locale.ROOT)).find())throw new ResponseStatusException(BAD_GATEWAY,"Could not verify the student identity in this report.");
      var parsed=parseReport(report,year,names);String scope=year+" · Semester "+semester;
      var data=new LinkedHashMap<String,Object>();data.put("subjects",parsed.get("subjects"));data.put("officialDays",parsed.get("officialDays"));
      data.put("sessions",List.of());data.put("timetable",List.of());data.put("scenarios",List.of());data.put("account",f.student);data.put("semester",scope);data.put("synced",Instant.now().toString());data.put("showPersonal",false);data.put("target",75);
-     var currentStudent=sql.sql("SELECT student_id FROM attendance_snapshots WHERE owner_id=:o").param("o",owner).query(String.class).optional();
-     if(currentStudent.isPresent()&&!currentStudent.get().equals(f.student))throw new ResponseStatusException(CONFLICT,"This Attendly account is already linked to a different student. Account switching is not enabled yet.");
-     var other=sql.sql("SELECT owner_id FROM attendance_snapshots WHERE student_id=:s").param("s",f.student).query(String.class).optional();
-     if(other.isPresent()&&!other.get().equals(owner))throw new ResponseStatusException(CONFLICT,"This IMS account is already connected to another Attendly account.");
-     int changed=sql.sql("UPDATE attendance_snapshots SET student_id=:s,scope=:scope,payload=:p,fetched_at=:at WHERE owner_id=:o").param("s",f.student).param("scope",scope).param("p",Json.write(data)).param("at",Instant.now().toString()).param("o",owner).update();
-     if(changed==0)sql.sql("INSERT INTO attendance_snapshots(owner_id,student_id,scope,payload,fetched_at) VALUES(:o,:s,:scope,:p,:at)").param("o",owner).param("s",f.student).param("scope",scope).param("p",Json.write(data)).param("at",Instant.now().toString()).update();
      return data;
-   }
+ }
+ void saveSnapshot(String owner,String student,Map<String,Object> data){
+     String scope=data.get("semester").toString();
+     var currentStudent=sql.sql("SELECT student_id FROM attendance_snapshots WHERE owner_id=:o").param("o",owner).query(String.class).optional();
+     if(currentStudent.isPresent()&&!currentStudent.get().equals(student))throw new ResponseStatusException(CONFLICT,"This Attendly account is already linked to a different student. Account switching is not enabled yet.");
+     var other=sql.sql("SELECT owner_id FROM attendance_snapshots WHERE student_id=:s").param("s",student).query(String.class).optional();
+     if(other.isPresent()&&!other.get().equals(owner))throw new ResponseStatusException(CONFLICT,"This IMS account is already connected to another Attendly account.");
+     int changed=sql.sql("UPDATE attendance_snapshots SET student_id=:s,scope=:scope,payload=:p,fetched_at=:at WHERE owner_id=:o").param("s",student).param("scope",scope).param("p",Json.write(data)).param("at",Instant.now().toString()).param("o",owner).update();
+     if(changed==0)sql.sql("INSERT INTO attendance_snapshots(owner_id,student_id,scope,payload,fetched_at) VALUES(:o,:s,:scope,:p,:at)").param("o",owner).param("s",student).param("scope",scope).param("p",Json.write(data)).param("at",Instant.now().toString()).update();
  }
  static Map<String,Object> parseReport(Document report,String year,Map<String,String> names){
    var totals=new LinkedHashMap<String,Map<String,Integer>>();var days=new LinkedHashMap<String,Object>();int start=Integer.parseInt(year.substring(0,4));
