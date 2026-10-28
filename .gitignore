@@ -10,6 +10,30 @@
 **/.idea/
 **/*.iml
 /outputs/attendance_app/previews/
+/outputs/material-previews/
 
 /outputs/create-history.ps1
 /outputs/commit-plan.json
+
+# Web/backend local runtime and build output.
+/server/.local/
+/server/target/
+/server/src/main/resources/static/
+**/.env
+/.env
+
+/outputs/*.jar
+/.local/
+
+# Private environment overrides, signing material, and database files.
+**/.env.*
+!**/.env.example
+**/key.properties
+**/*.jks
+**/*.keystore
+**/*.mv.db
+**/*.trace.db
+
+# Web caches remain on disk when switching to the Android branch.
+/apps/web/.dart_tool/
+/apps/web/build/
