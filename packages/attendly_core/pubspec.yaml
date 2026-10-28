@@ -1,0 +1,6 @@
+name: attendly_core
+description: Attendance models, timetable parsing and leave planning shared by Attendly clients.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ">=3.8.0 <4.0.0"

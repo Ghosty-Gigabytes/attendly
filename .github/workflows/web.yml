@@ -1,0 +1,41 @@
+name: Web and backend
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          cache-dependency-path: server/pom.xml
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.6'
+          channel: stable
+          cache: true
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: flutter pub get
+      - name: Analyze web client
+        working-directory: apps/web
+        run: flutter analyze --no-pub
+      - name: Test web client
+        working-directory: apps/web
+        run: flutter test --no-pub
+      - name: Build and prepare web bundle
+        shell: pwsh
+        run: ./scripts/build-web.ps1
+      - name: Test and package backend
+        run: ./server/mvnw.cmd -B -f server/pom.xml clean verify
