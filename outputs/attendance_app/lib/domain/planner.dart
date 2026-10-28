@@ -49,6 +49,31 @@ List<Session> plannedSessions(AppData data, Scenario plan) {
   });
 }
 
+/// A block may count as multiple classes. Existing saved whole-block actions
+/// remain the fallback; individual class choices override them.
+String planClassKey(Session session, int index) =>
+    '${session.id}::class:$index';
+List<PlanAction> sessionActions(Scenario plan, Session session) => [
+  for (var i = 0; i < session.weight; i++)
+    plan.actions[planClassKey(session, i)] ??
+        plan.actions[session.id] ??
+        PlanAction.attend,
+];
+void setSessionAction(
+  Map<String, PlanAction> actions,
+  Session session,
+  PlanAction action,
+) {
+  for (var i = 0; i < session.weight; i++) {
+    actions.remove(planClassKey(session, i));
+  }
+  if (action == PlanAction.attend) {
+    actions.remove(session.id);
+  } else {
+    actions[session.id] = action;
+  }
+}
+
 List<Projection> project(AppData data, Scenario plan) {
   final sessions = plannedSessions(data, plan);
   return data.subjects.map((subject) {
@@ -58,9 +83,22 @@ List<Projection> project(AppData data, Scenario plan) {
     var current = start;
     final steps = <ProjectionStep>[];
     for (final s in sessions.where((s) => s.subject == subject.code)) {
-      final action = plan.actions[s.id] ?? PlanAction.attend;
-      current = current.add(action, s.weight);
-      steps.add(ProjectionStep(s, action, current));
+      final choices = sessionActions(plan, s);
+      if (choices.every((a) => a == choices.first)) {
+        current = current.add(choices.first, s.weight);
+        steps.add(ProjectionStep(s, choices.first, current));
+      } else {
+        for (var i = 0; i < choices.length; i++) {
+          final unit = Session(
+            id: planClassKey(s, i),
+            subject: s.subject,
+            starts: s.starts,
+            note: 'Class ${i + 1} of ${s.weight}',
+          );
+          current = current.add(choices[i]);
+          steps.add(ProjectionStep(unit, choices[i], current));
+        }
+      }
     }
     return Projection(subject, start, current, steps, plan.target);
   }).toList();
@@ -74,8 +112,11 @@ List<DateTime> suitableDays(AppData data, Scenario plan) {
       .where((date) {
         final actions = {...plan.actions};
         for (final s in sessions.where((s) => dateKey(s.starts) == date)) {
-          if (actions[s.id] != PlanAction.cancel) {
-            actions[s.id] = PlanAction.miss;
+          final choices = sessionActions(plan, s);
+          for (var i = 0; i < choices.length; i++) {
+            if (choices[i] != PlanAction.cancel) {
+              actions[planClassKey(s, i)] = PlanAction.miss;
+            }
           }
         }
         final candidate = Scenario(
