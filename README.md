@@ -1,67 +1,185 @@
-# Attendly: Android and web
+# Attendly
 
-## GitHub setup
-The web branch is `codex/web-app`; `codex/android-app` preserves the Android app. The GitHub Actions workflow checks the web client and packages the backend with the compiled frontend using Java 17 and Flutter 3.47.6. Tests use isolated databases and do not require student credentials or live IMS access.
+**Know your attendance. Plan your time.**
 
-Create an empty GitHub repository, then run these commands from the project root, replacing `YOUR_USER/YOUR_REPOSITORY`:
+Attendly helps NSUT students check their IMS attendance, keep personal class records, and explore leave plans before taking a break. It includes a Flutter Android app and a responsive Flutter web app backed by Spring Boot.
 
-```powershell
-git remote add origin https://github.com/YOUR_USER/YOUR_REPOSITORY.git
-git push -u origin codex/web-app
-git push origin codex/android-app
+Attendance is calculated **for each subject**, with a minimum of **75%**. There is no combined attendance percentage across subjects.
+
+> An independent student project, not an official NSUT service. IMS remains the source of official attendance. The website is under active development and is not yet ready for a public production launch.
+
+## Features
+
+| Feature | What it does |
+| --- | --- |
+| IMS sign-in | Uses your existing student ID and password; no separate Attendly registration. |
+| Attendance overview | Shows subject names, percentages, class counts, and classes you can miss or need to attend. |
+| Personal records | Lets you log present and absent classes while waiting for faculty uploads. |
+| Attendance calendar | Shows daily attendance with separate official and personal records. |
+| Timetable | Supports pasted timetable imports and a weekly calendar editor. |
+| What if? | Projects how leave, extra classes, and cancellations affect each subject. |
+| Virtual ID card | Displays front/back views using IMS details and images, with rotation and subtle motion. |
+| Offline access | Keeps previously loaded records available on the device. |
+| Web sync | Saves personal records and plans to your account and queues offline edits. |
+| Material interface | Adapts to mobile and desktop with light/dark appearance. |
+
+The Android app also includes home-screen widgets and device notifications. These are separate from the web app.
+
+### Official and personal attendance
+
+Official records and personal logs stay separate. Turning on personal records shows an additional percentage that includes classes IMS has not recorded yet.
+
+If IMS and your personal log both contain a record for the same subject on the same day, **the IMS record is used**. Classes are never added twice. Differing counts can be flagged for review.
+
+In IMS reports, `1` means present, `0` means absent, and a blank cell means no recorded class. Off-day codes are displayed separately and do not count as held classes. Leave projections depend on your timetable and the assumptions shown in the planner.
+
+## Project structure
+
+```text
+apps/web/                 Flutter web client and PWA shell
+packages/attendly_core/    Shared Dart models and attendance calculations
+server/                   Spring Boot API, IMS adapter, database migrations
+scripts/                  Build, offline-shell preparation, server startup
+outputs/attendance_app/   Existing Flutter Android app
+docs/                     Technical notes
+compose.yaml              Optional local PostgreSQL service
 ```
 
-If `origin` already exists, inspect it with `git remote -v` before changing it. Select `codex/web-app` as the default branch in GitHub if the website is the primary project. Local SDKs, compiled bundles, databases, encryption keys, signing keys, and previews are excluded from Git. Configure deployment secrets outside source control. No open-source license is granted by this repository yet; choose one before inviting public reuse.
+| Branch | Purpose |
+| --- | --- |
+| `codex/web-app` | Web app, shared Dart package, and backend. |
+| `codex/android-app` | Preserved Android app. |
 
-## Branches
-- `codex/android-app`: preserved native Android app, including the guided What-if redesign (`2ebd5cc`).
-- `codex/web-app`: web client and Spring Boot backend development. Android sources under `outputs/attendance_app` remain unchanged from the preserved branch.
+The Android app currently uses its own domain implementation. It has not been migrated to the shared package or web account system.
 
-## Current structure
-Desktop navigation keeps account details and a logout button in the sidebar footer, with a persistent refresh toolbar. Alt+1 through Alt+5 switch sections. Wide screens show up to three subject columns; subject calendars open in a dismissible dialog. Unsynced personal edits block logout and offer a sync action.
+## Tech stack
 
-- `apps/web`: Flutter web/PWA client; Material design and the existing attendance, calendar, timetable and What-if interactions.
-- `packages/attendly_core`: extracted platform-independent models, counting rules, timetable parsing and projections. The preserved Android app still uses its own snapshot; migration to this shared package is a separate Android change.
-- `server`: Java 17, Spring Boot 4.1.2, Spring Security, JDBC, Flyway, PostgreSQL. Local-only H2 profile permits development without installing PostgreSQL. JDBC was chosen for explicit owner/scope/revision queries; JPA is not required for this initial implementation.
-- `scripts`: build and local-preview commands.
+- **Frontend:** Flutter, Dart, Material 3, Dio, Sembast/IndexedDB.
+- **Backend:** Java 17, Spring Boot 4.1.2, Spring Security, JDBC, Jsoup.
+- **Database:** PostgreSQL with Flyway migrations; H2 for local development and tests.
+- **Authentication:** IMS verification, server sessions, Argon2id verification, and optional encrypted credentials for background refresh.
+- **OCR:** Bundled Tesseract and a custom digit model, with manual CAPTCHA entry available.
 
-## Local preview
-Prerequisites: Java 17+, Flutter and the Maven wrapper (first use requires internet).
+## Run locally
+
+### Prerequisites
+
+- Flutter **3.47.6**, including its Dart SDK.
+- JDK **17** with `JAVA_HOME` configured.
+- PowerShell for the helper scripts.
+- Internet access for initial dependencies and IMS sign-in.
+
+The Maven wrapper is included. PostgreSQL is optional when using the local profile.
+
+### Build and start
+
+Run from the repository root:
 
 ```powershell
 ./scripts/build-web.ps1
 ./scripts/start-server.ps1
 ```
 
-Open http://localhost:8080. Sign in with your IMS student ID and password; Attendly creates an account only after the IMS report verifies that identity. No sample attendance is inserted. The local profile stores its database under `server/.local`, which is ignored by Git. The backend serves the web bundle and `/api` from the same origin. For Flutter hot reload, run the backend with `WEB_ORIGIN=http://localhost:5173` and run Flutter from `apps/web` with `--web-port 5173 --dart-define=API_BASE=http://localhost:8080/api`.
+Open [localhost:8080](http://localhost:8080) and sign in with IMS. Spring Boot serves both the compiled frontend and the API.
 
-## IMS-first authentication
-The main login uses IMS credentials, not a separate Attendly email/password. The verified student ID is unique; an internal UUID owns records. Previously linked snapshots resolve to the existing owner only after successful IMS verification. Migrating an account disables its old email-password credential. Email sign-up/login, Google OAuth, and the duplicate IMS connection flow have been removed. Existing account IDs and attendance/personal records are preserved by migration V3; obsolete authentication columns are removed.
+The local database and encryption key are created under `server/.local/`. Keep the key private and retain it with your installation. These files are excluded from Git.
 
-The server stores an Argon2id verifier (19 MiB, 2 passes, parallelism 1). If background refresh is enabled on the login screen, it also stores an AES-256-GCM encrypted password with a random nonce and owner ID as authenticated data. No password is logged or placed in browser storage. Production requires `IMS_CREDENTIAL_KEY`, a base64-encoded random 32-byte key supplied separately from the database. The local profile generates an ignored `server/.local/ims-credential.key`; keep it private and back it up separately. Losing or changing that key requires users to sign in again to re-save credentials; staged key rotation/KMS integration is pending.
+### Frontend development with hot reload
 
-An existing user can sign in during a connection timeout/refusal or IMS HTTP 502/503/504 using the last verified password, only within 7 days of successful IMS credential verification. Explicit credential/CAPTCHA rejection, malformed pages, TLS errors and parser errors never activate fallback. Fallback sessions allow saved-record GETs only, expire after 15 minutes of inactivity, and cannot edit records, refresh IMS or change saved credentials. First-time accounts require IMS. Existing device caches remain accessible offline.
+In the first terminal, from the repository root:
 
-The refresh worker checks every 15 minutes for stale snapshots of users who opted in. It reuses valid IMS sessions, then signs in with encrypted credentials and local OCR when necessary. Failed refreshes preserve the last snapshot; an explicit login rejection removes the encrypted password to stop repeated submissions. Settings can remove that encrypted password without deleting attendance or the fallback verifier. API login throttling is per student and source IP for this single-server foundation; shared/distributed throttling remains a deployment task.
+```powershell
+$env:WEB_ORIGIN = 'http://localhost:5173'
+./scripts/start-server.ps1
+```
 
-## IMS connection
-CAPTCHA answers are filled using bundled Tesseract native libraries and the same `mydigits.traineddata` model as Android. Recognition runs locally on the server with sparse-text segmentation (PSM 11); no external OCR service or separate Tesseract installation is needed on supported platforms. The number remains editable; recognition failure or a busy OCR worker leaves manual entry available. Refreshing the image clears the previous answer. CAPTCHA images and answers are not logged or stored in the database. See the [Tesseract documentation](https://tesseract-ocr.github.io/tessdoc/Command-Line-Usage) for recognition options. Run the optional public-challenge smoke test by setting `IMS_LIVE_SMOKE=true` before backend tests; it fetches a public image without signing into a student account.
+In a second terminal:
 
-The IMS adapter follows the Android/Python flow, including the legacy `fy` compatibility field; current report year/semester come from IMS. Redirects are restricted to IMS HTTPS hosts and cookies are isolated per user. Live public CAPTCHA fetch and OCR have been verified; real student sign-in and deployed PostgreSQL still require end-to-end verification. The web ID-card viewer fetches Personal Info > ID Card Details, verifies the student ID, and loads IMS photo/signature/logo images. Server snapshots are encrypted and responses use Cache-Control: no-store. The browser keeps an account-scoped copy for offline use and clears it on logout. Mobile navigation opens a fullscreen front/back viewer with portrait/landscape card rotation and drag tilt; it does not change phone orientation or request motion-sensor access. The card uses Department, student Ph.No., IMS address, B.Tech. 4-year / M.Tech. 2-year batches, and no barcode or registrar signature. Live ID-card retrieval still needs a real-account check.
+```powershell
+cd apps/web
+flutter pub get
+flutter run -d chrome --web-port 5173 --dart-define=API_BASE=http://localhost:8080/api
+```
 
-## Offline and sync
-The web client stores account-scoped snapshots and pending edits in IndexedDB through Sembast Web. Official records remain separate from personal records, timetable rules and plans. The app shell has a custom service worker; API/auth routes are never cached by it. The web renderer is bundled locally for offline use. First use must be online. The packaged build pre-caches its app/renderer assets before the offline shell activates. Browser storage may be evicted or manually cleared; server-synced records can be downloaded again, while unsynced changes cannot be recovered after local deletion.
+### Run the backend with Maven
 
-Mutations have UUIDs and base revisions; the server deduplicates retries and retains deletion tombstones. Conflicts keep the local version pending and require a choice. The initial conflict dialog shows the preserved record payloads; a friendlier field-level comparison is pending. Sync runs on opening/retrying or after edits; closed-browser background sync is not promised. Signing out is blocked when unsynced edits exist, then clears this browser's local database. Cross-semester pending-edit migration is not complete; resolve pending edits before switching semesters. Android-to-Attendly-account migration is not implemented yet.
+From the repository root:
 
-## Configuration and production work
-Default server configuration expects `DATABASE_URL`, `DATABASE_USER`, `DATABASE_PASSWORD`, `WEB_ORIGIN` and HTTPS (`COOKIE_SECURE=true`). `compose.yaml` supplies an optional local PostgreSQL instance; its password must be set in the environment. The database migration uses PostgreSQL-compatible SQL. Integration tests currently run on H2 in PostgreSQL mode; real PostgreSQL deployment verification remains required.
+```powershell
+cd server
+./mvnw.cmd spring-boot:run '-Dspring-boot.run.profiles=local'
+```
 
-This is a local-development foundation, not a public launch. Pending: distributed rate limits/abuse protection, account export/deletion, persistent session storage across server instances, managed key rotation, push notifications, production backups/monitoring and Safari/offline lifecycle checks. No secrets or real student records are committed. A live IMS account is needed for the remaining external end-to-end checks.
+Build the frontend first if you want this server to serve the website too. For IntelliJ, import `server/pom.xml`, select Java 17, set the working directory to `server`, and activate the `local` Spring profile.
 
-## Validation
-Run backend checks with `server/mvnw.cmd -f server/pom.xml test` (or `mvn -f server/pom.xml test`), and Flutter checks from `apps/web` with `flutter test` and `flutter analyze`. Build the web bundle before packaging the backend JAR so it includes the UI. Do not commit `server/src/main/resources/static`, `server/target`, credentials or local databases.
+### Package the combined app
 
+From the repository root:
 
-## Initial web milestone validation
-Backend integration/parser/OCR tests and eleven Flutter web controller/layout tests pass, including encrypted credential storage, stable IMS account creation, outage-only fallback and read-only enforcement. Flutter analysis is clean and the release web build and executable Spring Boot JAR succeed. The combined app was served at localhost:8080 and its desktop login page inspected in the in-app browser. Mobile and desktop login layouts were also rendered in widget tests. Live IMS student authentication, PostgreSQL deployment and real iPhone lifecycle behavior remain unverified.
+```powershell
+./scripts/build-web.ps1
+./server/mvnw.cmd -f server/pom.xml clean package
+cd server
+java -jar target/attendly-server-0.0.1-SNAPSHOT.jar --spring.profiles.active=local
+```
+
+Rebuild the web bundle after frontend changes. Maven packages the existing bundle; it does not compile Flutter automatically.
+
+For Android setup, see the [Android app README](outputs/attendance_app/README.md).
+
+## Configuration
+
+The default server profile uses PostgreSQL and secure cookies. The `local` profile uses on-disk H2 and permits HTTP development.
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | JDBC PostgreSQL connection URL. |
+| `DATABASE_USER` | Database username. |
+| `DATABASE_PASSWORD` | Database password; also required by `compose.yaml`. |
+| `WEB_ORIGIN` | Frontend origin, including scheme and port. |
+| `COOKIE_SECURE` | Keep `true` for HTTPS deployments. |
+| `IMS_CREDENTIAL_KEY` | Base64-encoded random 32-byte encryption key, required outside the local profile. |
+
+`compose.yaml` provides an optional PostgreSQL 16 container. Supply `DATABASE_PASSWORD` before running `docker compose up -d`. Keep deployment secrets outside source control.
+
+## Privacy and offline behavior
+
+- Accounts are created only after IMS verifies the student's identity.
+- Passwords are not stored in browser storage. Background refresh uses an encrypted server-side password only when enabled by the user.
+- ID-card snapshots are encrypted on the server. The browser keeps an account-scoped offline copy.
+- The PWA asset cache excludes API responses. Private offline records use the browser's local database.
+- Signing out clears this browser's local records. Pending edits must be synced first.
+- First use requires a connection. Clearing browser storage can remove unsynced edits.
+- Certain IMS outages allow recently verified existing users a restricted session to read saved records, without editing or refreshing.
+
+See [technical notes](docs/technical-notes.md) for authentication, encryption, fallback rules, and sync limitations. The virtual card is a convenience view; it does not establish university approval or replace an officially accepted ID.
+
+## Development checks
+
+From `apps/web`:
+
+```powershell
+flutter pub get
+flutter analyze
+flutter test
+```
+
+From the repository root:
+
+```powershell
+./server/mvnw.cmd -f server/pom.xml test
+```
+
+GitHub Actions checks the web client, builds the frontend, and tests/packages the backend. Normal tests use isolated databases and need no student credentials. The optional live challenge test is enabled separately with `IMS_LIVE_SMOKE=true`.
+
+## Remaining work
+
+- Verify live web ID-card retrieval and wider IMS report variations.
+- Validate PostgreSQL deployment and iPhone/Safari offline behavior.
+- Add account export/deletion and improve sync-conflict explanations.
+- Add production monitoring, backups, managed key rotation, and distributed rate limiting/session storage.
+- Complete Android-to-web account migration and cross-semester pending-edit handling.
+
+## License
+
+No project license has been selected yet. Third-party libraries and bundled assets retain their respective licenses. University names and marks belong to their respective owners.
